@@ -44,7 +44,7 @@ describe("secrets are never excerpted or cached", () => {
     expect(sensitiveByContent('{"installed":{"client_id":"x","client_secret":"GOCSPX-abc"}}')).toBeTruthy();
     expect(sensitiveByContent("token: ghp_" + "a".repeat(36))).toBeTruthy();
     expect(sensitiveByContent("-----BEGIN OPENSSH PRIVATE KEY-----\nabc")).toBeTruthy();
-    expect(sensitiveByContent(["1. ab12-cd34", "2. ef56-gh78", "3. ij90-kl12", "4. mn34-op56", "5. qr78-st90"].join("\n"))).toBe("list of one-time codes");
+    expect(sensitiveByContent(["1. ab12-cd34", "2. ef56-gh78", "3. ij90-kl12", "4. mn34-op56", "5. qr78-st90"].join("\n"))?.rule).toBe("content.code-list");
     expect(sensitiveByContent("Meeting notes: discuss Q3 roadmap and hiring")).toBeUndefined();
     // a description of a secret is fine in a summary, the secret itself is not
     expect(sensitiveByContent("GitHub recovery codes file", { valuesOnly: true })).toBeUndefined();

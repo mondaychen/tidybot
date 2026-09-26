@@ -12,7 +12,8 @@ decisions into a plan you can review, then does the moves with a full undo histo
 ```
 agent:  tidybot summary todo ~/Downloads        → files that need a summary (images: required)
 agent:  (subagents on a cheap model read them)  → tidybot summary save --data '[...]'
-agent:  tidybot scan ~/Downloads --json         → files + excerpts + summaries + folders + rules
+agent:  tidybot scan ~/Downloads --json         → compact list: previews/summaries, duplicates, folders, rules
+agent:  tidybot inspect <files> --json          → full text for the few files the preview didn't settle
 agent:  tidybot propose --data '{...}'          → plan with moves and renames (nothing moved yet)
 you:    tidybot plan show / plan set / skip     → review and edit
 you:    tidybot apply                           → files move, history recorded
@@ -38,7 +39,8 @@ Requires Node 20+.
 | Command | What it does |
 |---|---|
 | `guide [organize\|summarize\|onboard]` | Instructions for the agent: workflow, how to judge, renaming, subagent prompt |
-| `scan [dir] [-r] [--include-organized]` | Files with type, excerpt and cached summary, plus smart folders, rules, naming style and rename mode. Files already in smart folders are skipped by default |
+| `scan [dir] [-r] [--older-than 14d] [--offset n] [--full]` | Compact list of files (type, size, date, summary or short preview, flags: `sensitive`, `duplicate`, `needsSummary`, `more`), plus duplicate groups, smart folders, rules, naming style and rename mode. Skips files already in smart folders and, if asked, recent ones. Pages with `nextOffset` |
+| `inspect <files...>` | Full excerpt and details for specific files (step 2 after `scan`) |
 | `summary todo [dir] [-r]` | Files that still need a summary |
 | `summary save [--data] [--model]` | Stores agent-written summaries: `[{file, summary, keywords[]}]` |
 | `summary get <files...>` / `summary list` | Reads summaries back (`list` is for semantic search on the agent side) |
@@ -56,7 +58,7 @@ Requires Node 20+.
 | `find <words...>` | Searches files by summary, keywords and name |
 | `folders list \| add \| edit \| rm` | Smart folders |
 | `rules`, `rules add \| rm`, `rules naming [style]` | General rules and naming style for the agent |
-| `config get \| set \| unset` | `source`, `excerptChars`, `maxFiles`, `skipOrganized`, `rename` (auto/always/off), `naming` |
+| `config get \| set \| unset` | `source`, `excerptChars`, `previewChars`, `maxFiles`, `olderThan`, `skipOrganized`, `rename` (auto/always/off), `naming` |
 | `init [dir] [--copy-global]` | Creates per-project settings (see below) |
 | `status` | Active scope, counts, open plans |
 
@@ -70,11 +72,25 @@ as `warnings` so the agent can fix them before you review. The extension is alwa
 are sanitized to a single path segment. Your naming style (`tidybot rules naming "..."`) and general
 rules (`tidybot rules add "..."`) are included in every `scan` so the agent follows them.
 
+## Scanning big folders
+
+`scan` is built to use as little of the agent's context as possible. By default each file gets one
+compact line: a cached summary or a 160-character preview, plus flags. The agent calls `inspect` only
+for files it can't classify from that. On 336 files, the compact output is about 4× smaller than
+`--full`. Big folders page through with `--offset`.
+
+- `--older-than 14d`, or `config set olderThan 14d`, leaves files you're still using out of the plan.
+  "Recent" means created *or* modified within the window.
+- `duplicates` lists identical files. That includes copies already filed in a smart folder, as long as
+  tidybot has seen that copy before (scanned, summarized, or moved after a scan).
+
 ## Summaries and search
 
 Summaries are cached by **content hash**, so they survive renames and moves, and identical copies
 share one summary. Short text files don't need one: their text is cached automatically. Images always
-need a summary before they can be proposed, because the excerpt can't say what's in a photo. The agent
+need a summary before they can be proposed, because the excerpt can't say what's in a photo. The one
+exception: if the filename already says what the image is, the agent can propose it with a
+`summarySkipped` reason, which you'll see in the plan. The agent
 is told to delegate summarizing to subagents on a cheap model; see `tidybot guide summarize`.
 
 ## Sensitive files
@@ -83,6 +99,17 @@ Files that look like they hold credentials are flagged `sensitive` and never exc
 cached. That covers recovery codes, keys, `.env`/`.pem` files, OAuth client secrets, password-manager
 emergency kits, and text containing token-like strings. The agent is told to suggest a password manager
 for them instead of a folder. `summary save` also rejects summaries that contain secret values.
+
+Every rule has an ID (`tidybot sensitive rules`), and false positives can be allowed:
+
+| Command | Effect | Who |
+|---|---|---|
+| `sensitive allow <files> --reason "…"` | Waives the **filename** rules for these files. Content is still checked | The agent may do this on its own, for clearly harmless names |
+| `sensitive allow <files> --reason "…" --content` | Waives **all** rules for these files | Only with your OK |
+| `sensitive allow-rule <id>` / `disallow-rule <id>` | Turns a rule off or on, in the current scope | Only when you ask |
+| `sensitive list` / `revoke <file\|hash>` | Reviews or removes exceptions | You |
+
+File exceptions are tied to the file's content hash. If the file changes, it's checked again.
 
 ## Per-project settings (advanced)
 
@@ -105,6 +132,7 @@ Commands run anywhere under that directory pick it up, the same way git finds it
   history.jsonl             # append-only: move / undo / forget
   summaries.jsonl           # append-only: content hash → summary + keywords
   index.json                # path → hash cache (skips rehashing; lets `find` locate files)
+  allowlist.json            # per-file sensitive-detection exceptions, keyed by content hash
 <project>/.tidybot/         # optional per-project config.yaml + folders.yaml
 ```
 

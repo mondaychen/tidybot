@@ -174,6 +174,53 @@ rest for a CLI that an agent drives. Open questions are collected at the end und
     - Each plan records `context` (rename mode, naming style, rules and folders in effect at the latest
       `propose`). This answers open question 4 from the previous round.
 
+20. **Two-step scan** *(requested)*. `scan` now returns a compact view by default: `rel`, type, size, date,
+    and either a summary or a `previewChars` (160) preview, plus flags (`more`, `needsSummary`,
+    `sensitive`, `duplicate`). Absolute paths and long excerpts are gone.
+    - `inspect <files>` returns full details for only the files the agent is unsure about. `--full`
+      keeps the old output.
+    - Paging replaces the hard cap: `--offset`, and `nextOffset` in the output. The default page size
+      went from 200 to 500 files.
+    - Excerpts are still *read* up to `excerptChars` during `scan`, because that's how sensitive,
+      complete and needsSummary get decided. Only the output is smaller.
+    - On 336 files: 116 KB compact against 461 KB full. That's about 340 bytes per file, mostly the preview.
+      `previewChars 80` would roughly halve it. I kept 160 because a shorter preview means more `inspect` calls.
+
+21. **Duplicates** *(requested)*. `scan` groups scanned files by content hash, ignoring empty files. It
+    also lists identical files the index knows about elsewhere, for example a copy already filed in a
+    smart folder. The limit is that "elsewhere" only covers files tidybot has hashed. A smart folder that
+    has never been scanned won't show up; running `scan -r --include-organized` once over the smart
+    folders fills that in. tidybot still never deletes. The guide tells the agent to suggest which copy
+    to delete, keeping the one already filed.
+
+22. **`--older-than` / `olderThan`** *(requested)*. A file counts as recent if it was created **or**
+    modified within the window (`max(mtime, birthtime)`). Birth time catches downloads whose modified date
+    was set to the server's old timestamp. Units are `h d w m y`, where `m` is 30 days. The result includes
+    `skippedRecent`. `--any-age` overrides the config value.
+
+23. **Skipping the summary for an image** *(requested)*. A proposal item can include
+    `summarySkipped: "<reason>"` for an image whose filename already says what it is. The plan shows
+    `[no summary: <reason>]` so you can check it during review. Images without a summary and without a
+    reason are still rejected.
+
+24. **Allowing sensitive-detection false positives** *(requested)*. Every rule has a stable ID
+    (`name.tokens`, `content.assignment`, …), and `scan` reports `sensitiveRule` next to `sensitive`.
+    - **Per-file, keyed by content hash** (`allowlist.json`). If the file changes, the exception stops
+      applying and the file is checked again. A path-keyed allowlist would keep trusting a file after
+      someone pasted a key into it.
+    - **Two levels.** By default an allowance only waives the *filename* rules, and content is still checked.
+      That covers the noisy cases (`design-tokens.json`, `secret-santa.xlsx`) and is safe for the agent to do
+      on its own. If the content also matches a rule, `allow` refuses and names the rule. Waiving content rules
+      needs `--content`, and the guide says to get the user's OK first.
+    - **Batches are all-or-nothing.** If any file in an `allow` call is refused, nothing is saved.
+      A `--reason` is required and shown in `sensitive list`.
+    - **Rule-wide:** `allow-rule` / `disallow-rule` edit `allowRules` in config, in the current scope, combined
+      across global and project like `rules`. Any rule can be turned off, even high-confidence ones like
+      `content.private-key`, because it's your machine. The guide says to do it only when the user asks.
+    - **Limitation:** "ask the user first" is a soft rule for the agent. `--content` and `allow-rule` aren't
+      technically gated. If you want a hard gate, deny `Bash(tidybot sensitive allow-rule*)` and
+      `Bash(tidybot sensitive allow*--content*)` in the agent's permissions, the same way as for `apply`.
+
 ## 🟡 Open questions
 
 1. **Is `find` enough?** Keyword scoring plus agent-side semantic search over `summary list` works
@@ -189,4 +236,6 @@ rest for a CLI that an agent drives. Open questions are collected at the end und
 4. **Existing summaries from before the secrets fix.** Nobody has a real `~/.tidybot` yet (I checked this
    machine), so I didn't write a migration. If you ran an earlier build against real files, delete
    `~/.tidybot/summaries.jsonl`.
-5. **Name.** It's `tidybot` for now (the original was "Podia File Organizer"). There's no license or npm scope yet.
+5. **Cleanup/trash.** Deferred for now (not picked). Moving whole folders as one unit was **dropped** as
+   overkill: tidybot organizes files, and folders in the scanned directory are left alone.
+6. **Name.** It's `tidybot` for now (the original was "Podia File Organizer"). There's no license or npm scope yet.

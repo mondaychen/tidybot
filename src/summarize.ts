@@ -5,22 +5,21 @@ import { TidyError } from "./errors.js";
 import { mimeOf } from "./extract.js";
 import { resolvePath } from "./paths.js";
 import { sensitiveByContent } from "./sensitive.js";
+import { loadAllowances } from "./store/allowlist.js";
 import { FileIndex, type Summary, SummaryInputSchema, appendSummary, loadSummaries } from "./store/summaries.js";
 
 /** Store summaries written by an agent (or its subagents). Files are hashed by tidybot, not trusted from input. */
-export async function saveSummaries(input: unknown, opts: { base: string; model?: string }): Promise<Summary[]> {
+export async function saveSummaries(input: unknown, opts: { base: string; model?: string; allowRules?: string[] }): Promise<Summary[]> {
   const list = Array.isArray(input) ? input : (input as { items?: unknown })?.items;
   const parsed = z.array(SummaryInputSchema).min(1).safeParse(list);
   if (!parsed.success) throw new TidyError(`Invalid summaries: ${z.prettifyError(parsed.error)}`, "invalid_input");
 
   const index = new FileIndex();
   const existing = loadSummaries();
+  const allowances = loadAllowances();
+  const disabled = new Set(opts.allowRules ?? []);
   const saved: Summary[] = [];
   for (const s of parsed.data) {
-    const leak = sensitiveByContent([s.summary, ...s.keywords].join("\n"), { valuesOnly: true });
-    if (leak) {
-      throw new TidyError(`Summary for ${s.file ?? s.hash} looks like it contains a secret (${leak}). Describe the file without copying credentials.`, "sensitive");
-    }
     let hash = s.hash;
     let name = "";
     let mime: string | null = null;
@@ -36,6 +35,16 @@ export async function saveSummaries(input: unknown, opts: { base: string; model?
       const known = index.pathsFor(hash)[0];
       name = prev?.name ?? (known ? path.basename(known) : "");
       mime = prev?.mime ?? (known ? mimeOf(known) : null);
+    }
+    // A file allowed with --content is known to be harmless text; otherwise vet for secret values.
+    const leak = allowances[hash as string]?.content
+      ? undefined
+      : sensitiveByContent([s.summary, ...s.keywords].join("\n"), { valuesOnly: true, disabled });
+    if (leak) {
+      throw new TidyError(
+        `Summary for ${s.file ?? s.hash} looks like it contains a secret (${leak.reason}, rule ${leak.rule}). Describe the file without copying credentials.`,
+        "sensitive",
+      );
     }
     const record: Summary = {
       hash: hash as string,

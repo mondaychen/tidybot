@@ -18,6 +18,8 @@ export const ProposalSchema = z.object({
   folder: z.string().nullable(),
   /** New filename (no directories). Extension is kept if omitted. */
   rename: z.string().nullish(),
+  /** Why an image can be filed without a summary (e.g. its name is already descriptive). */
+  summarySkipped: z.string().trim().min(1).optional(),
   reason: z.string().optional(),
   confidence: z.number().min(0).max(1).optional(),
 });
@@ -53,6 +55,7 @@ interface ProposeContext {
   folders: SmartFolder[];
   config: Pick<Config, "rename">;
   requireImageSummaries: boolean;
+  allowRules: ReadonlySet<string>;
   summarized: (file: string) => boolean;
 }
 
@@ -62,8 +65,11 @@ function toItem(p: Proposal, ctx: ProposeContext): PlanItem {
   const invalid = (note: string): PlanItem => ({ ...item, status: "invalid", note });
 
   if (!fs.existsSync(file) || !fs.statSync(file).isFile()) return invalid("file not found");
-  if (ctx.requireImageSummaries && isImage(mimeOf(file)) && !sensitiveByName(file) && !ctx.summarized(file)) {
-    return invalid("image has no summary yet; run the summarize step first (tidybot guide summarize)");
+  if (ctx.requireImageSummaries && isImage(mimeOf(file)) && !sensitiveByName(file, ctx.allowRules) && !ctx.summarized(file)) {
+    if (!p.summarySkipped) {
+      return invalid('image has no summary yet; summarize it (tidybot guide summarize) or give "summarySkipped": "<reason>" if the name says enough');
+    }
+    item.summarySkipped = p.summarySkipped;
   }
   if (p.rename) {
     if (ctx.config.rename === "off") item.warnings = ["rename ignored: renaming is off (config rename=off)"];
@@ -112,7 +118,7 @@ export function refreshWarnings(plan: Plan): void {
 /** Create a new plan, or merge into an existing open plan (later proposals win per file). */
 export function propose(
   input: unknown,
-  opts: { source: string; config?: Pick<Config, "rename">; appendTo?: Plan; allowUnsummarized?: boolean },
+  opts: { source: string; config?: Partial<Config>; appendTo?: Plan; allowUnsummarized?: boolean },
 ): Plan {
   const parsed = ProposeInputSchema.safeParse(input);
   if (!parsed.success) throw new TidyError(`Invalid proposal: ${z.prettifyError(parsed.error)}`, "invalid_input");
@@ -133,6 +139,7 @@ export function propose(
     folders,
     config,
     requireImageSummaries: !opts.allowUnsummarized,
+    allowRules: new Set(config.allowRules),
     summarized: (file) => {
       const hash = index.cachedHash(file);
       return !!hash && summaries.has(hash);

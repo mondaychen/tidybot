@@ -14,10 +14,14 @@ I/O and caching, and the user reviews before anything moves. Always pass `--json
    - Hand the listed files to subagents on a cheap/fast model, or at low effort, about 5–10 files each.
      Images need a multimodal model.
    - Save the results with `tidybot --json summary save --model <m> --data '[...]'`.
-   - This step is required when there are images, because `propose` rejects images that have no summary.
+   - This step is required for images, because `propose` rejects an image that has no summary. The exception
+     is an image whose filename already says what it is: propose it with `"summarySkipped": "<reason>"`.
 3. **Organize** (follows `tidybot guide organize`):
-   - `tidybot --json scan <dir> [-r]` gives you the files, excerpts and summaries, plus the smart folders,
-     `rules`, `naming` and `rename` mode. Files already inside smart folders are skipped.
+   - `tidybot --json scan <dir> [-r]` gives you a compact list of files (summary or short preview, flags),
+     duplicate groups, smart folders, `rules`, `naming` and `rename` mode. Files already inside smart
+     folders are skipped. Page with `--offset <nextOffset>`. If the user wants recent files left alone,
+     add `--older-than 14d`.
+   - For files the preview doesn't settle, run `tidybot --json inspect <rel>... --source <dir>`. Don't use `scan --full`.
    - Pick one smart folder **by name** for each file, or `null`. Add a `rename` when the name is unhelpful
      or conflicts, following `naming`.
    - `tidybot --json propose --source <dir> --data '{"items":[{"file":"<rel>","folder":"<name>","rename":"<optional>","reason":"...","confidence":0.8}]}'`
@@ -26,7 +30,13 @@ I/O and caching, and the user reviews before anything moves. Always pass `--json
      and `tidybot plan skip <file>`.
 4. **Do not run `tidybot apply` until the user approves the plan.** When they do, run
    `tidybot --json apply --yes`. `tidybot undo --last` reverts the batch, original names included.
-5. **Find files:** `tidybot --json find <words>`. For vague descriptions, read `tidybot --json summary list`
+5. **Duplicates and sensitive files:** tidybot never deletes. Tell the user which copies they could delete
+   (keep the one already filed), and suggest a password manager for `sensitive` files.
+   - Harmless files flagged by a **filename** rule (`sensitiveRule: name.*`) you may allow yourself:
+     `tidybot --json sensitive allow <rel> --source <dir> --reason "..."`. Tell the user which ones.
+   - **Content** matches (`content.*`) need the user's OK (`--content`). Turn a whole rule off
+     (`sensitive allow-rule <id>`) only when the user asks.
+6. **Find files:** `tidybot --json find <words>`. For vague descriptions, read `tidybot --json summary list`
    and match by meaning yourself.
 
 Rules:

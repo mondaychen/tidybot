@@ -2,6 +2,7 @@ import path from "node:path";
 import { z } from "zod";
 import { TidyError } from "../errors.js";
 import { projectDir, tidybotHome } from "../paths.js";
+import { RULE_IDS } from "../sensitive.js";
 import { readYaml, writeYaml } from "./io.js";
 
 export const RENAME_MODES = ["auto", "always", "off"] as const;
@@ -11,8 +12,12 @@ const fields = {
   source: z.string(),
   /** Max characters of extracted content per file handed to the agent. */
   excerptChars: z.number().int().min(0),
-  /** Safety cap on files per scan. */
+  /** Files per scan page (use --offset for the next page). */
   maxFiles: z.number().int().min(1),
+  /** Characters of content shown per file in the compact scan. */
+  previewChars: z.number().int().min(0),
+  /** Default age filter for scans, e.g. "14d" ("" = off). Recent files are left alone. */
+  olderThan: z.string().regex(/^$|^\d+(\.\d+)?\s*[hdwmy]$/i, "use e.g. 12h, 14d, 2w, 3m, 1y"),
   /** Skip files already inside a smart folder when scanning. */
   skipOrganized: z.boolean(),
   /** auto: agent renames unhelpful names and conflicts; always: every file; off: never. */
@@ -21,6 +26,8 @@ const fields = {
   naming: z.string(),
   /** Extra instructions that don't belong to a single smart folder. */
   rules: z.array(z.string()),
+  /** Sensitive-detection rule ids turned off (see `tidybot sensitive rules`). */
+  allowRules: z.array(z.string()),
 };
 
 /** What a config file may contain (no defaults, so a project file only overrides what it sets). */
@@ -30,16 +37,19 @@ type RawConfig = z.infer<typeof RawConfigSchema>;
 export const ConfigSchema = z.object({
   source: fields.source.default("~/Downloads"),
   excerptChars: fields.excerptChars.default(1000),
-  maxFiles: fields.maxFiles.default(200),
+  maxFiles: fields.maxFiles.default(500),
+  previewChars: fields.previewChars.default(160),
+  olderThan: fields.olderThan.default(""),
   skipOrganized: fields.skipOrganized.default(true),
   rename: fields.rename.default("auto"),
   naming: fields.naming.default(""),
   rules: fields.rules.default([]),
+  allowRules: fields.allowRules.default([]),
 });
 export type Config = z.infer<typeof ConfigSchema>;
 
 /** Keys settable with `config set`; list-valued `rules` has its own command. */
-export const SCALAR_KEYS = ["source", "excerptChars", "maxFiles", "skipOrganized", "rename", "naming"] as const;
+export const SCALAR_KEYS = ["source", "excerptChars", "maxFiles", "previewChars", "olderThan", "skipOrganized", "rename", "naming"] as const;
 export type ScalarKey = (typeof SCALAR_KEYS)[number];
 
 export type Scope = "global" | "project";
@@ -63,7 +73,7 @@ function readRaw(scope: Scope): RawConfig {
 }
 
 /**
- * Global settings with project overrides on top. `rules` from both scopes are combined.
+ * Global settings with project overrides on top. `rules` and `allowRules` from both scopes are combined.
  * Inside a project, `source` defaults to the project root.
  */
 export function loadConfig(): Config {
@@ -74,6 +84,7 @@ export function loadConfig(): Config {
     ...global,
     ...project,
     rules: [...(global.rules ?? []), ...(project.rules ?? [])],
+    allowRules: [...new Set([...(global.allowRules ?? []), ...(project.allowRules ?? [])])],
   });
 }
 
@@ -128,4 +139,13 @@ export function removeRule(position: number, scope = activeScope()): string {
   if (removed === undefined) throw new TidyError(`No rule #${position} in ${scope} rules.`, "not_found");
   update(scope, (c) => ({ ...c, rules: rules.filter((_, i) => i !== position - 1) }));
   return removed;
+}
+
+/** Turn a sensitive-detection rule off (or back on) in the given scope. */
+export function setRuleAllowed(id: string, allowed: boolean, scope = activeScope()): string[] {
+  if (!RULE_IDS.has(id)) throw new TidyError(`Unknown rule "${id}". See \`tidybot sensitive rules\`.`, "not_found");
+  const current = readRaw(scope).allowRules ?? [];
+  if (!allowed && !current.includes(id)) throw new TidyError(`Rule ${id} isn't allowed in ${scope} config.`, "not_found");
+  const next = allowed ? [...new Set([...current, id])] : current.filter((r) => r !== id);
+  return update(scope, (c) => ({ ...c, allowRules: next })).allowRules ?? [];
 }

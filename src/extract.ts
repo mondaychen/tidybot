@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import JSZip from "jszip";
 import { sensitiveByContent, sensitiveByName } from "./sensitive.js";
+import type { Waivers } from "./store/allowlist.js";
 
 /** Small built-in table; enough to give the agent a type hint without another dependency. */
 const MIME: Record<string, string> = {
@@ -59,6 +60,8 @@ export interface Extracted {
   complete: boolean;
   /** Why the file looks like it holds credentials. Its excerpt is withheld. */
   sensitive?: string;
+  /** Id of the rule that flagged it (for allowlisting). */
+  sensitiveRule?: string;
   /** Why content wasn't read (too big, known binary). */
   skipped?: string;
   error?: string;
@@ -170,10 +173,12 @@ async function extractPdf(buf: Buffer, limit: number): Promise<{ text: string; w
   }
 }
 
-export async function extractExcerpt(file: string, limit: number): Promise<Extracted> {
+const NO_WAIVERS: Waivers = { disabled: new Set(), names: false, content: false };
+
+export async function extractExcerpt(file: string, limit: number, waivers: Waivers = NO_WAIVERS): Promise<Extracted> {
   const ext = path.extname(file).toLowerCase();
-  const byName = sensitiveByName(file);
-  if (byName) return { method: "none", excerpt: "", complete: false, sensitive: byName };
+  const byName = waivers.names ? undefined : sensitiveByName(file, waivers.disabled);
+  if (byName) return { method: "none", excerpt: "", complete: false, sensitive: byName.reason, sensitiveRule: byName.rule };
   if (limit <= 0) return { method: "none", excerpt: "", complete: false };
   if (BINARY_EXT.has(ext)) return { method: "none", excerpt: "", complete: false, skipped: "binary type" };
 
@@ -197,8 +202,8 @@ export async function extractExcerpt(file: string, limit: number): Promise<Extra
     }
     const normalized = text.replace(/[ \t]+/g, " ").trim();
     // Check all the text we read, not just the excerpt, so a secret just past the cut still counts.
-    const byContent = sensitiveByContent(normalized);
-    if (byContent) return { method, excerpt: "", complete: false, sensitive: byContent };
+    const byContent = waivers.content ? undefined : sensitiveByContent(normalized, { disabled: waivers.disabled });
+    if (byContent) return { method, excerpt: "", complete: false, sensitive: byContent.reason, sensitiveRule: byContent.rule };
     return {
       method,
       excerpt: normalized.slice(0, limit),

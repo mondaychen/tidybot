@@ -9,7 +9,7 @@ import { type ConflictPolicy, applyPlan, forgetMove, selectMoves, undoMoves } fr
 import { emit, fail, isJsonMode, renderMoves, renderPlan, setJsonMode } from "./output.js";
 import { PROJECT_DIRNAME, contractHome, projectDir, resolvePath, setScopeOverride, tidybotHome } from "./paths.js";
 import { propose, retarget, skip } from "./planner.js";
-import { scan } from "./scan.js";
+import { compactEntry, inspect, parseAge, scan } from "./scan.js";
 import {
   SCALAR_KEYS,
   type Scope,
@@ -19,6 +19,7 @@ import {
   loadRules,
   removeRule,
   setConfigValue,
+  setRuleAllowed,
   unsetConfigValue,
 } from "./store/config.js";
 import { addFolder, foldersFile, importFolders, loadFolders, removeFolder, saveFolders, updateFolder } from "./store/folders.js";
@@ -28,6 +29,9 @@ import { listPlans, loadPlan, planState, savePlan } from "./store/plans.js";
 import { FileIndex, findSummaries } from "./store/summaries.js";
 import { getSummaries, listSummaries, saveSummaries } from "./summarize.js";
 import { survey } from "./survey.js";
+import { allowFiles } from "./allow.js";
+import { RULES } from "./sensitive.js";
+import { loadAllowances, removeAllowance } from "./store/allowlist.js";
 
 const int = (v: string) => {
   const n = Number.parseInt(v, 10);
@@ -82,7 +86,10 @@ function addScanOptions(cmd: Command): Command {
     .argument("[dir]", "directory to scan (default: config `source`)")
     .option("-r, --recursive", "include files in subdirectories")
     .option("-m, --match <glob>", "only filenames matching this pattern, e.g. '*.pdf'")
-    .option("--max-files <n>", "cap on number of files", int)
+    .option("--max-files <n>", "files per page (default: config maxFiles)", int)
+    .option("--offset <n>", "skip this many files (use `nextOffset` from the previous page)", int)
+    .option("--older-than <age>", "leave recent files alone: only files older than e.g. 14d, 2w, 3m (default: config olderThan)")
+    .option("--any-age", "ignore the configured olderThan filter")
     .option("--include-organized", "also scan files already inside smart folders (skipped by default)");
 }
 
@@ -91,26 +98,34 @@ async function runScan(dirArg: string | undefined, o: Record<string, unknown>, e
   const folders = loadFolders();
   const dir = resolvePath(dirArg ?? config.source);
   const skipOrganized = !o.includeOrganized && config.skipOrganized;
+  const olderThan = o.anyAge ? "" : ((o.olderThan as string | undefined) ?? config.olderThan);
   const result = await scan(dir, {
     recursive: !!o.recursive,
     match: o.match as string | undefined,
     maxFiles: (o.maxFiles as number | undefined) ?? config.maxFiles,
+    offset: o.offset as number | undefined,
+    before: olderThan ? Date.now() - parseAge(olderThan) : undefined,
     excerptChars: excerptChars ?? config.excerptChars,
+    allowRules: config.allowRules,
     skipFolders: skipOrganized ? folders : [],
     noHash: o.content === false,
   });
-  return { config, folders, dir, ...result };
+  return { config, folders, dir, olderThan, ...result };
 }
 
 addScanOptions(
   program
     .command("scan")
-    .description("files with type info, content excerpts and cached summaries, plus smart folders and rules — the context an agent needs"),
+    .description(
+      "compact list of files (type, size, date, summary or short preview, flags) plus smart folders and rules — step 1 of classifying; use `inspect` for full excerpts",
+    ),
 )
-  .option("--excerpt-chars <n>", "characters of content per file (0 = none)", int)
+  .option("--full", "full entries with long excerpts and absolute paths instead of the compact view")
+  .option("--excerpt-chars <n>", "characters of content read per file (default: config excerptChars)", int)
   .option("--no-content", "skip content extraction, hashing and summaries (fast listing)")
   .action(async (dirArg: string | undefined, o) => {
     const r = await runScan(dirArg, o, o.content === false ? 0 : o.excerptChars);
+    const dupFiles = new Set(r.duplicates.flatMap((d) => d.files));
     const needs = {
       required: r.files.filter((f) => f.needsSummary === "required").length,
       recommended: r.files.filter((f) => f.needsSummary === "recommended").length,
@@ -118,29 +133,56 @@ addScanOptions(
     const data = {
       source: r.dir,
       scope: scopeLabel(),
+      count: r.files.length,
       truncated: r.truncated,
+      ...(r.nextOffset !== undefined ? { nextOffset: r.nextOffset } : {}),
+      olderThan: r.olderThan || null,
+      skippedRecent: r.skippedRecent,
       skippedFolders: r.skippedFolders,
       needsSummary: needs,
       sensitive: r.files.filter((f) => f.sensitive).length,
+      duplicates: r.duplicates,
       rename: r.config.rename,
       naming: r.config.naming,
       rules: r.config.rules,
       folders: r.folders,
-      files: r.files,
+      files: o.full ? r.files : r.files.map((f) => compactEntry(f, r.config.previewChars, dupFiles.has(f.rel))),
     };
     emit(data, () => {
-      const lines = [`${r.files.length} file(s) in ${contractHome(r.dir)}${r.truncated ? " (truncated, raise --max-files)" : ""}`];
+      const lines = [`${r.files.length} file(s) in ${contractHome(r.dir)}${r.truncated ? ` (more: --offset ${r.nextOffset})` : ""}`];
+      if (r.olderThan) lines.push(`older than ${r.olderThan}: ${r.skippedRecent} recent file(s) left alone`);
       if (r.skippedFolders.length) lines.push(`skipped smart folders: ${r.skippedFolders.join(", ")}`);
       for (const f of r.files) {
-        const flag = f.sensitive ? `  [sensitive: ${f.sensitive}]` : f.needsSummary ? `  [summary ${f.needsSummary}]` : "";
-        lines.push(`  ${f.rel}  ${f.mime ?? f.ext ?? ""}  ${f.size}B${flag}`);
+        const flags = [f.sensitive ? `sensitive: ${f.sensitive} (${f.sensitiveRule})` : "", f.needsSummary ? `summary ${f.needsSummary}` : "", dupFiles.has(f.rel) ? "duplicate" : ""]
+          .filter(Boolean)
+          .map((x) => `[${x}]`)
+          .join(" ");
+        lines.push(`  ${f.rel}  ${f.mime ?? f.ext ?? ""}  ${f.size}B${flags ? `  ${flags}` : ""}`);
         const text = f.summary ?? f.excerpt;
         if (text) lines.push(`      ${text.slice(0, 100).replace(/\s+/g, " ")}${text.length > 100 ? "…" : ""}`);
       }
+      for (const d of r.duplicates) lines.push(`duplicate: ${[...d.files, ...d.elsewhere].join("  =  ")}`);
       if (needs.required || needs.recommended) lines.push("", `Summaries needed: ${needs.required} required, ${needs.recommended} recommended. See \`tidybot guide summarize\`.`);
       if (r.folders.length === 0) lines.push("", "No smart folders yet. See `tidybot guide onboard`.");
       return lines.join("\n");
     });
+  });
+
+program
+  .command("inspect")
+  .description("full details (long excerpt, summary, flags) for specific files — step 2 after a compact scan")
+  .argument("<files...>", "paths, relative to --source")
+  .option("-s, --source <dir>", "directory the paths are relative to (default: config `source`)")
+  .option("--excerpt-chars <n>", "characters of content per file (default: config excerptChars)", int)
+  .action(async (files: string[], o) => {
+    const config = loadConfig();
+    const base = resolvePath(o.source ?? config.source);
+    const entries = await inspect(files, base, { excerptChars: o.excerptChars ?? config.excerptChars, allowRules: config.allowRules });
+    emit({ source: base, files: entries }, () =>
+      entries
+        .map((f) => [`${f.rel}  ${f.mime ?? f.ext}  ${f.size}B`, f.sensitive ? `  [sensitive: ${f.sensitive}]` : `  ${(f.summary ?? f.excerpt ?? "(no text)").replace(/\s+/g, " ")}`].join("\n"))
+        .join("\n"),
+    );
   });
 
 program
@@ -207,7 +249,7 @@ summary
   .option("--model <name>", "model that wrote them (recorded for reference)")
   .option("-s, --source <dir>", "directory that relative file paths refer to (default: cwd)")
   .action(async (file: string | undefined, o) => {
-    const saved = await saveSummaries(readInput(o, file), { base: resolvePath(o.source ?? "."), model: o.model });
+    const saved = await saveSummaries(readInput(o, file), { base: resolvePath(o.source ?? "."), model: o.model, allowRules: loadConfig().allowRules });
     emit({ ok: true, saved }, () => `Saved ${saved.length} summar${saved.length === 1 ? "y" : "ies"}.`);
   });
 
@@ -258,6 +300,94 @@ program
         ? hits.map((h) => `${h.paths.map(contractHome).join(", ") || `(moved/unknown: ${h.name})`}\n  ${h.summary.slice(0, 140).replace(/\s+/g, " ")}`).join("\n")
         : "No matches. (Only summarized files are searchable; for fuzzy queries ask your agent to read `tidybot summary list`.)",
     );
+  });
+
+// ---------------------------------------------------------------- sensitive-file exceptions
+
+const sensitive = program
+  .command("sensitive")
+  .description("sensitive-file detection: list rules, and allow false positives (per file or per rule)");
+
+sensitive
+  .command("rules")
+  .description("detection rules with their ids, and which are turned off")
+  .action(() => {
+    const off = new Set(loadConfig().allowRules);
+    const rows = RULES.map((r) => ({ id: r.id, kind: r.kind, reason: r.reason, allowed: off.has(r.id) }));
+    emit(rows, () => rows.map((r) => `${r.allowed ? "off" : "on "}  ${r.id.padEnd(24)} ${r.reason}`).join("\n"));
+  });
+
+sensitive
+  .command("list", { isDefault: true })
+  .description("current exceptions: allowed files and turned-off rules")
+  .action(() => {
+    const files = Object.values(loadAllowances());
+    const index = new FileIndex();
+    const rows = files.map((a) => ({ ...a, paths: index.pathsFor(a.hash) }));
+    const rules = loadConfig().allowRules;
+    emit({ files: rows, rules }, () =>
+      [
+        rules.length ? `rules turned off: ${rules.join(", ")}` : "rules turned off: none",
+        ...(rows.length
+          ? rows.map((r) => `${r.name}  [${r.content ? "all rules" : "name rules"}; flagged by ${r.rule ?? "?"}]\n    ${r.reason}  (${r.hash.slice(0, 19)})`)
+          : ["allowed files: none"]),
+      ].join("\n"),
+    );
+  });
+
+sensitive
+  .command("allow")
+  .description(
+    "allow flagged files (false positives). Waives filename rules only; files whose content matches a rule need --content, which requires the user's OK",
+  )
+  .argument("<files...>")
+  .requiredOption("--reason <text>", "why this is not a secret (shown in `tidybot sensitive list`)")
+  .option("--content", "also waive content rules for this exact file content (ask the user first)")
+  .option("-s, --source <dir>", "directory the paths are relative to (default: cwd)")
+  .action(async (files: string[], o) => {
+    const r = await allowFiles(files, { base: resolvePath(o.source ?? "."), reason: o.reason, content: o.content, allowRules: loadConfig().allowRules });
+    emit({ ok: true, ...r }, () =>
+      [
+        `Allowed ${r.allowed.length} file(s)${o.content ? " (all rules)" : " (filename rules only)"}.`,
+        ...r.notFlagged.map((f) => `  ${f}: not flagged, nothing to allow`),
+        "Allowances are tied to the file's current content; if it changes it will be checked again.",
+      ].join("\n"),
+    );
+  });
+
+sensitive
+  .command("revoke")
+  .description("remove file exceptions (by path or hash)")
+  .argument("<filesOrHashes...>")
+  .action(async (targets: string[]) => {
+    const index = new FileIndex();
+    const removed = [];
+    for (const t of targets) {
+      const hash = /^(sha256|quick):/.test(t) ? t : await index.hashOf(resolvePath(t));
+      const r = removeAllowance(hash);
+      if (!r) throw new TidyError(`No exception for ${t}`, "not_found");
+      removed.push(r);
+    }
+    index.save();
+    emit({ ok: true, removed }, () => `Revoked ${removed.length} exception(s).`);
+  });
+
+sensitive
+  .command("allow-rule")
+  .description("turn a detection rule off in the current scope (ask the user first)")
+  .argument("<ruleId>", "see `tidybot sensitive rules`")
+  .action((id: string) => {
+    const list = setRuleAllowed(id, true, writeScope());
+    emit({ ok: true, scope: writeScope(), allowRules: list }, () => `Turned off ${id} (${writeScope()}).`);
+  });
+
+sensitive
+  .command("disallow-rule")
+  .description("turn a detection rule back on in the current scope")
+  .argument("<ruleId>")
+  .action((id: string) => {
+    const list = setRuleAllowed(id, false, writeScope());
+    emit({ ok: true, scope: writeScope(), allowRules: list }, () => `Turned ${id} back on (${writeScope()}).`);
   });
 
 // ---------------------------------------------------------------- plans

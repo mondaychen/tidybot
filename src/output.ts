@@ -58,6 +58,7 @@ export function renderPlan(plan: Plan): string {
       i.confidence !== undefined ? `${Math.round(i.confidence * 100)}%` : "",
       i.reason ?? "",
       i.note ? `[${i.note}]` : "",
+      i.summarySkipped ? `[no summary: ${i.summarySkipped}]` : "",
       ...(i.warnings ?? []).map((w) => `⚠ ${w}`),
     ]
       .filter(Boolean)

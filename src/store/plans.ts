@@ -17,6 +17,8 @@ export interface PlanItem {
   newName?: string;
   reason?: string;
   confidence?: number;
+  /** Agent's reason for filing an image without a summary. */
+  summarySkipped?: string;
   status: ItemStatus;
   /** Non-blocking issues, e.g. a name conflict the agent could fix with a rename. */
   warnings?: string[];

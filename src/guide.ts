@@ -9,27 +9,35 @@ You decide which smart folder each file belongs in, and optionally a better name
 tidybot gathers the facts and performs the moves; a human reviews your plan first.
 
 ## Steps
-1. \`tidybot --json scan [dir]\` (add \`-r\` for subfolders) returns:
+1. \`tidybot --json scan [dir]\` (add \`-r\` for subfolders) returns a **compact** view:
    - \`folders\`: smart folders (name, path, rule)
    - \`rules\`, \`naming\`, \`rename\`: the user's extra instructions, naming style and rename mode
-   - \`files\`: name, type, size, date, excerpt, cached \`summary\`/\`keywords\`, and
-     \`needsSummary\` ("required" for images, "recommended" for long documents).
-   Files already inside a smart folder are skipped (see \`skippedFolders\`).
-   Files with \`sensitive\` (recovery codes, keys, credentials…) have no excerpt on purpose.
-   Don't open them. Point them out to the user and suggest storing them in a password manager
-   and deleting the file. Only propose a folder for them if the user asks.
-2. If any file has \`needsSummary\`, do the summarize step first (\`tidybot guide summarize\`).
-   It is **required** for images: \`propose\` rejects images without a summary.
-3. For every file choose exactly one smart folder **by name**, or \`null\` when nothing
+   - \`files\`: \`rel\`, type, size, date, and either a cached \`summary\` or a short \`preview\`.
+     Flags: \`more\` (longer text available), \`needsSummary\` ("required" for images,
+     "recommended" for long documents), \`sensitive\`, \`duplicate\`.
+   - \`duplicates\`: groups of identical files, including copies already filed elsewhere
+   - \`nextOffset\`: present when there are more files; scan again with \`--offset <n>\`.
+   Files already inside a smart folder are skipped (\`skippedFolders\`). So are recent files
+   when the user configured \`olderThan\` (\`skippedRecent\`); pass \`--older-than 14d\` yourself if
+   they say to leave recent downloads alone.
+2. When the preview isn't enough to decide, get the full text for just those files:
+   \`tidybot --json inspect <rel>... --source <dir>\`. Don't use \`scan --full\` on big folders.
+3. If any file has \`needsSummary\`, do the summarize step (\`tidybot guide summarize\`).
+   Images need a summary unless the filename already says what the image is: then propose it
+   with \`"summarySkipped": "<why the name is enough>"\` (e.g. "Passport Photo IMG 1360.JPG").
+4. For every file choose exactly one smart folder **by name**, or \`null\` when nothing
    fits. Never invent folders or paths. Optionally propose a new name (see Renaming).
-4. Submit:
+5. Submit:
    \`tidybot --json propose --source <dir> --data '{"items":[{"file":"<rel>","folder":"<name>","rename":"<new name or omit>","reason":"<short why>","confidence":0.9}]}'\`
    (or pipe the JSON on stdin). This writes a plan; it moves nothing.
-5. Check the plan's items for \`warnings\` (e.g. \`conflict: ... already exists\`). Fix them by
+6. Check the plan's items for \`warnings\` (e.g. \`conflict: ... already exists\`). Fix them by
    re-proposing those files with a different \`rename\` using \`--append\`.
-6. Show the human \`tidybot plan show\`; apply their edits with
+7. Tell the user about \`duplicates\` and \`sensitive\` files separately: tidybot doesn't delete, so
+   suggest which copies they could delete (prefer keeping the one already in a smart folder).
+   Leave extra copies out of the plan unless the user wants them filed.
+8. Show the human \`tidybot plan show\`; apply their edits with
    \`tidybot plan set <file> [folder] [--name <new>] [--keep-name]\` / \`tidybot plan skip <file>\`.
-7. Only after the human approves: \`tidybot --json apply --yes\`. Undo: \`tidybot undo --last\`.
+9. Only after the human approves: \`tidybot --json apply --yes\`. Undo: \`tidybot undo --last\`.
 
 ## How to judge
 - The user's \`rules\` apply to everything; a folder's \`rule\` outranks its name.
@@ -54,9 +62,26 @@ conflict; **always** = give every file a name following the naming style.
 - "3f2a9c1e-77b0-4d1a.pdf", excerpt "Form I-485 ... Receipt Notice ... May 01, 2023"
   -> folder "Legal", rename "2023-05-01 I-485 receipt notice"
 
+## Sensitive files
+Files with \`sensitive\` (recovery codes, keys, credentials…) have no preview on purpose.
+Don't open them. Point them out and suggest a password manager, then deleting the file.
+Only propose a folder for them if the user asks.
+
+Detection errs on the side of flagging; \`sensitiveRule\` says which rule fired
+(\`tidybot sensitive rules\` lists them all). Handling false positives:
+- **Filename rule** (\`name.*\`) on a clearly harmless name, e.g. \`design-tokens.json\`,
+  \`secret-santa.xlsx\`: you may allow it yourself:
+  \`tidybot --json sensitive allow <rel>... --source <dir> --reason "<why it's not a secret>"\`,
+  then \`inspect\` it. Content is still checked, so a real secret stays hidden.
+  Tell the user which files you allowed.
+- **Content rule** (\`content.*\`): the file's text looks like a secret. Ask the user before
+  allowing it with \`--content\`. Never allow it on your own.
+- **Turning a rule off** everywhere (\`tidybot sensitive allow-rule <id>\`): only when the user
+  asks, e.g. after several false positives from the same rule.
+
 ## Large directories
-\`scan\` is capped by --max-files. Work in batches: scan with --match, propose, then
-add later batches to the same plan with \`tidybot propose --append\`.
+Scan pages through files (\`nextOffset\`). Propose each page, adding later pages to the same
+plan with \`tidybot propose --append\`. \`--match '*.pdf'\` narrows a scan by name.
 `;
 
 export const SUMMARIZE_GUIDE = `# tidybot: summarizing files (agent instructions)
