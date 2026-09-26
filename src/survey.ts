@@ -1,0 +1,86 @@
+import fs from "node:fs";
+import path from "node:path";
+import { contractHome, resolvePath } from "./paths.js";
+import { assertDir } from "./scan.js";
+
+export interface DirSummary {
+  path: string;
+  depth: number;
+  /** Files directly inside this directory. */
+  files: number;
+  /** Files in this directory and all descendants (within the walk limits). */
+  totalFiles: number;
+  subdirs: number;
+  topExtensions: { ext: string; count: number }[];
+  sampleNames: string[];
+  /** Name of the smart folder at this path, if any. */
+  smartFolder?: string;
+}
+
+export interface SurveyOptions {
+  depth: number;
+  samples: number;
+  maxDirs: number;
+  /** Smart folders to annotate in the output. */
+  folders?: { name: string; path: string }[];
+}
+
+const SKIP = new Set(["node_modules", ".git", "Library", "__pycache__", ".venv"]);
+
+/**
+ * Summarize existing directory structure so an agent can propose smart folders.
+ * Returns one row per directory, breadth-limited by depth and maxDirs.
+ */
+export function survey(root: string, opts: SurveyOptions): { root: string; dirs: DirSummary[]; truncated: boolean } {
+  assertDir(root);
+  const dirs: DirSummary[] = [];
+  let truncated = false;
+  const smart = new Map((opts.folders ?? []).map((f) => [resolvePath(f.path), f.name]));
+
+  const visit = (dir: string, depth: number): number => {
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return 0;
+    }
+    const visible = entries.filter((e) => !e.name.startsWith("."));
+    const fileNames = visible.filter((e) => e.isFile()).map((e) => e.name);
+    const subdirs = visible.filter((e) => e.isDirectory() && !SKIP.has(e.name));
+    const exts = new Map<string, number>();
+    for (const n of fileNames) {
+      const ext = path.extname(n).toLowerCase() || "(none)";
+      exts.set(ext, (exts.get(ext) ?? 0) + 1);
+    }
+    const row: DirSummary | undefined =
+      dirs.length < opts.maxDirs
+        ? {
+            path: contractHome(dir),
+            depth,
+            files: fileNames.length,
+            totalFiles: fileNames.length,
+            subdirs: subdirs.length,
+            topExtensions: [...exts.entries()]
+              .sort((a, b) => b[1] - a[1])
+              .slice(0, 5)
+              .map(([ext, count]) => ({ ext, count })),
+            sampleNames: fileNames.slice(0, opts.samples),
+            ...(smart.has(dir) ? { smartFolder: smart.get(dir) } : {}),
+          }
+        : undefined;
+    if (row) dirs.push(row);
+    else truncated = true;
+
+    let total = fileNames.length;
+    if (depth < opts.depth) {
+      for (const sub of subdirs.sort((a, b) => a.name.localeCompare(b.name))) total += visit(path.join(dir, sub.name), depth + 1);
+    } else if (subdirs.length > 0) {
+      truncated = true;
+    }
+    if (row) row.totalFiles = total;
+    return total;
+  };
+
+  visit(root, 0);
+  return { root: contractHome(root), dirs, truncated };
+}
