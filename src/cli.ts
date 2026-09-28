@@ -4,7 +4,7 @@ import path from "node:path";
 import { createInterface } from "node:readline/promises";
 import { Command, Option } from "commander";
 import { TidyError } from "./errors.js";
-import { GUIDES, type GuideTopic } from "./guide.js";
+import { GUIDE_TOPICS, readGuide, type GuideTopic } from "./guide.js";
 import { type ConflictPolicy, applyPlan, forgetMove, selectMoves, undoMoves } from "./mover.js";
 import { emit, fail, isJsonMode, renderMoves, renderPlan, setJsonMode } from "./output.js";
 import { PROJECT_DIRNAME, contractHome, projectDir, resolvePath, setScopeOverride, tidybotHome } from "./paths.js";
@@ -59,7 +59,7 @@ const writeScope = (): Scope => activeScope();
 const scopeLabel = () => (projectDir() ? `project ${contractHome(path.dirname(projectDir() as string))}` : "global");
 
 const program = new Command("tidybot")
-  .description("Organize files into smart folders. An AI agent proposes, you review, tidybot moves (and undoes).")
+  .description("Organize files into smart folders. An AI agent proposes, you review, tidybot moves (and undoes).\nAI agents: start with `tidybot guide`.")
   .version("0.2.0")
   .option("--json", "machine-readable JSON output (or set TIDYBOT_JSON=1)")
   .option("-g, --global", "ignore any per-project settings (.tidybot/) and use global ones")
@@ -77,9 +77,15 @@ program
   .command("guide")
   .description("print instructions for an AI agent driving tidybot")
   .addArgument(
-    new Command().createArgument("[topic]", "organize | summarize | onboard").choices(["organize", "summarize", "onboard"]).default("organize"),
+    new Command()
+      .createArgument("[topic]", GUIDE_TOPICS.join(" | "))
+      .choices(GUIDE_TOPICS)
+      .default("overview"),
   )
-  .action((topic: GuideTopic) => emit({ topic, guide: GUIDES[topic] }, () => GUIDES[topic]));
+  .action((topic: GuideTopic) => {
+    const guide = readGuide(topic);
+    emit({ topic, guide }, () => guide);
+  });
 
 function addScanOptions(cmd: Command): Command {
   return cmd
@@ -152,18 +158,21 @@ addScanOptions(
       const lines = [`${r.files.length} file(s) in ${contractHome(r.dir)}${r.truncated ? ` (more: --offset ${r.nextOffset})` : ""}`];
       if (r.olderThan) lines.push(`older than ${r.olderThan}: ${r.skippedRecent} recent file(s) left alone`);
       if (r.skippedFolders.length) lines.push(`skipped smart folders: ${r.skippedFolders.join(", ")}`);
-      for (const f of r.files) {
-        const flags = [f.sensitive ? `sensitive: ${f.sensitive} (${f.sensitiveRule})` : "", f.needsSummary ? `summary ${f.needsSummary}` : "", dupFiles.has(f.rel) ? "duplicate" : ""]
+      for (const f of r.files.map((f) => compactEntry(f, r.config.previewChars, dupFiles.has(f.rel)))) {
+        const flags = [f.sensitive ? `sensitive: ${f.sensitive} (${f.sensitiveRule})` : "", f.needsSummary ? `summary ${f.needsSummary}` : "", f.duplicate ? "duplicate" : "", f.more ? "more" : ""]
           .filter(Boolean)
           .map((x) => `[${x}]`)
           .join(" ");
-        lines.push(`  ${f.rel}  ${f.mime ?? f.ext ?? ""}  ${f.size}B${flags ? `  ${flags}` : ""}`);
-        const text = f.summary ?? f.excerpt;
-        if (text) lines.push(`      ${text.slice(0, 100).replace(/\s+/g, " ")}${text.length > 100 ? "…" : ""}`);
+        lines.push(`  ${f.rel}  ${f.mime ?? ""}  ${f.size}B  ${f.modified}${flags ? `  ${flags}` : ""}`);
+        const text = f.summary ?? f.preview;
+        if (text) lines.push(`      ${text.replace(/\s+/g, " ")}`);
       }
       for (const d of r.duplicates) lines.push(`duplicate: ${[...d.files, ...d.elsewhere].join("  =  ")}`);
       if (needs.required || needs.recommended) lines.push("", `Summaries needed: ${needs.required} required, ${needs.recommended} recommended. See \`tidybot guide summarize\`.`);
       if (r.folders.length === 0) lines.push("", "No smart folders yet. See `tidybot guide onboard`.");
+      else lines.push("", "Smart folders:", ...r.folders.map((f) => `  ${f.name} → ${f.path}${f.rule ? `  (${f.rule})` : ""}`));
+      if (r.config.rules.length) lines.push("", "Rules:", ...r.config.rules.map((x) => `  - ${x}`));
+      lines.push("", `Rename: ${r.config.rename}${r.config.naming ? `. Naming: ${r.config.naming}` : ""}`);
       return lines.join("\n");
     });
   });

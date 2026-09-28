@@ -40,7 +40,7 @@ rest for a CLI that an agent drives. Open questions are collected at the end und
    suggestions auditable.
 
 3. **Confirmation gate on `apply`** *(confirmed)*. On a TTY it asks y/N. With no TTY, or with `--json`,
-   it needs `--yes`. The skill tells agents not to pass `--yes` without approval. For a hard block, deny
+   it needs `--yes`. `tidybot guide` tells agents not to pass `--yes` without approval. For a hard block, deny
    `Bash(tidybot apply*)` in the agent's permission settings.
 
 4. **Moves never overwrite.** A collision fails the item unless `--on-conflict rename` is set (which gives
