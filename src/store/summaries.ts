@@ -3,6 +3,9 @@ import path from "node:path";
 import { z } from "zod";
 import { hashFile } from "../hash.js";
 import { tidybotHome } from "../paths.js";
+import { sensitiveByContent, sensitiveByName } from "../sensitive.js";
+import { loadAllowances } from "./allowlist.js";
+import { loadConfig } from "./config.js";
 import { appendJsonl, readJson, readJsonl, writeJson, writeJsonl } from "./io.js";
 
 /**
@@ -39,6 +42,19 @@ const indexFile = () => path.join(tidybotHome(), "index.json");
 export function loadSummaries(): Map<string, Summary> {
   const map = new Map<string, Summary>();
   for (const s of readJsonl<Summary>(summariesFile())) map.set(s.hash, s);
+  const allowances = loadAllowances();
+  const disabled = new Set(loadConfig().allowRules);
+  // All readers (including find and --include-missing) use the current policy.
+  // Do not trust a summary just because it was permitted when it was written.
+  for (const [hash, s] of map) {
+    const allowance = allowances[hash];
+    if ((!allowance && s.source === "content" && sensitiveByName(s.name, disabled)) ||
+        (!allowance?.content && sensitiveByContent([s.summary, ...s.keywords].join("\n"), { valuesOnly: s.source === "agent", disabled }))) {
+      map.delete(hash);
+    }
+    // Older builds marked this partial extraction as the full spreadsheet.
+    if (s.source === "content" && s.mime === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet") map.delete(hash);
+  }
   return map;
 }
 
@@ -107,10 +123,14 @@ export class FileIndex {
 
   moved(from: string, to: string): void {
     const e = this.entries[from];
-    if (!e) return;
+    if (!e && this.cachedHash(to)) return; // Idempotent journal replay.
     delete this.entries[from];
+    delete this.entries[to];
     try {
-      this.entries[to] = { ...e, mtimeMs: fs.statSync(to).mtimeMs };
+      const st = fs.statSync(to);
+      // Never bless an old hash with a new timestamp. A changed (or unindexed)
+      // source must be hashed again at its new location.
+      if (e && e.size === st.size && e.mtimeMs === st.mtimeMs) this.entries[to] = e;
     } catch {
       /* destination vanished; drop the entry */
     }

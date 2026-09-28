@@ -36,8 +36,8 @@ rest for a CLI that an agent drives. Open questions are collected at the end und
    A built-in `classify` that calls a model directly is out for now.
 
 2. **Propose-then-apply, with plans stored on disk.** A plan file lets the agent and the human work at
-   different times, lets an interrupted `apply` resume (it's saved after every file), and makes AI
-   suggestions auditable.
+   different times and makes AI suggestions auditable. A per-operation recovery journal is persisted
+   before moving; the plan is saved after every file. Discarded plans cannot be applied or previewed.
 
 3. **Confirmation gate on `apply`** *(confirmed)*. On a TTY it asks y/N. With no TTY, or with `--json`,
    it needs `--yes`. `tidybot guide` tells agents not to pass `--yes` without approval. For a hard block, deny
@@ -45,7 +45,9 @@ rest for a CLI that an agent drives. Open questions are collected at the end und
 
 4. **Moves never overwrite.** A collision fails the item unless `--on-conflict rename` is set (which gives
    `file (1).pdf`). The main fix is now smart rename (#12): `propose` detects collisions early. Undo refuses
-   to overwrite too. Cross-device moves use copy + unlink.
+   to overwrite too. Destinations are created with exclusive hard links, so a concurrent writer cannot
+   be overwritten between an existence check and a rename. Cross-device moves copy to a private staging
+   file, preserve modification time, link it into place exclusively, then unlink the source.
 
 5. **Storage formats:**
    - YAML for files people edit: `config.yaml`, `folders.yaml`.
@@ -56,7 +58,11 @@ rest for a CLI that an agent drives. Open questions are collected at the end und
      most recently written summaries. Both default to 0 (unlimited). They're enforced after each write
      (apply, undo, forget, summary save, scan) and by `tidybot compact`. Superseded summary records are
      always dropped when summaries are written. Dropped moves can't be undone.
-   - Writes are atomic (temp file + rename). There's no locking, which is fine for a single-user CLI.
+   - Rewritten files use temp file + flush + rename. Moves, undo and recovery share a process lock.
+     Other stores still assume one writer; atomic replacement alone does not prevent lost updates.
+   - `operations/<id>.json` records each move/undo before removing its source. CLI startup reconciles
+     interrupted operations, repairs an interrupted final history append, and updates history, plans
+     and the index. Recovery refuses ambiguous filesystem changes and retains the journal for inspection.
 
 6. **Global state with optional per-project settings.** `tidybot init` creates `<dir>/.tidybot/`, which is
    found by walking up from cwd like git. The rules for combining them:
@@ -81,6 +87,8 @@ rest for a CLI that an agent drives. Open questions are collected at the end und
    - Legacy `.doc/.xls/.ppt` are out of scope *(confirmed)*.
    - The extractor reports `complete: true` when the excerpt is the whole file, which drives the
      "short files need no summary" logic.
+   - XLSX sheet names and shared strings are only a preview: worksheet cells are omitted, so this
+     extraction is always incomplete. Old automatically cached XLSX previews are ignored.
 
 10. **`propose --append`** merges proposals into an open plan, and later proposals replace earlier ones for
     the same file. It's used for batching large directories and for fixing conflicts. Moved items are
@@ -118,7 +126,8 @@ rest for a CLI that an agent drives. Open questions are collected at the end und
 15. **File summaries, driven by the agent and cached by content hash.**
     - **Key**: `sha256` of the whole file. Files over 64 MiB get a `quick:` hash of size + first/last 4 MiB,
       so scanning a folder of videos stays fast. That could collide on large files that differ only in the
-      middle; I accepted that for a cache.
+      middle; I accepted that for a cache. Duplicate candidates with sampled hashes are verified by
+      streaming the entire file before being reported as identical, including indexed copies elsewhere.
     - **Index** (`index.json`): path → {hash, size, mtime}. Files aren't rehashed unless size or mtime
       change. It's updated on scan, summary save, apply and undo, which is how `find` knows where a file
       lives *now*. Files moved outside tidybot drop out of `find` until the next scan sees them;
@@ -150,6 +159,8 @@ rest for a CLI that an agent drives. Open questions are collected at the end und
       password manager. Sensitive images are exempt from the "images need a summary" rule.
     - `summary save` rejects summaries whose text contains a secret *value*. Describing one ("GitHub recovery
       codes") is fine. The subagent prompt says the same.
+    - Cached reads re-check the current sensitivity policy, so an old content allowance or disabled rule
+      cannot expose cached secret values after it is revoked, even with `--include-missing`.
     - **I chose to lean towards flagging too much.** A false positive only costs the excerpt. The agent still
       sees the name, type and size. `token` in a filename counts as sensitive, for example.
 

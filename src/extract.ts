@@ -82,14 +82,14 @@ const BINARY_EXT = new Set(
   ).split(" "),
 );
 
-function looksLikeText(sample: Buffer): boolean {
-  if (sample.includes(0)) return false;
-  // Reject if the sample doesn't decode as UTF-8 (allowing a truncated trailing sequence).
+function decodeText(sample: Buffer, whole: boolean): string | undefined {
+  if (sample.includes(0)) return undefined;
+  // Only a bounded read may end in an incomplete character. Validate every byte
+  // of complete files; streaming decode holds back a partial trailing sequence.
   try {
-    new TextDecoder("utf-8", { fatal: true }).decode(sample.subarray(0, Math.max(0, sample.length - 4)));
-    return true;
+    return new TextDecoder("utf-8", { fatal: true }).decode(sample, { stream: !whole });
   } catch {
-    return false;
+    return undefined;
   }
 }
 
@@ -150,7 +150,9 @@ async function extractOffice(buf: Buffer, ext: string, limit: number): Promise<{
   // xlsx: sheet names + shared strings is a cheap, representative summary.
   const sheets = [...(await read("xl/workbook.xml")).matchAll(/<sheet [^>]*name="([^"]*)"/g)].map((m) => decodeXml(m[1] ?? ""));
   const strings = xmlText(await read("xl/sharedStrings.xml"), "t", "si");
-  return { text: `Sheets: ${sheets.join(", ")}\n${strings}`, whole: true };
+  // Worksheet values, inline strings and formulas are not read by this preview.
+  // Even a short preview must not suppress agent summarization of the workbook.
+  return { text: `Sheets: ${sheets.join(", ")}\n${strings}`, whole: false };
 }
 
 /** Text of the first MAX_PDF_PAGES pages, stopping early once `limit` characters are collected. */
@@ -195,10 +197,11 @@ export async function extractExcerpt(file: string, limit: number, waivers: Waive
     } else {
       // Enough bytes for `limit` characters of (up to 4-byte) UTF-8, and at least a sniff sample.
       const head = await readHead(file, Math.max(SNIFF_BYTES, limit * 4));
-      if (!looksLikeText(head)) return { method, excerpt: "", complete: false };
-      method = "text";
       whole = head.length >= size;
-      text = head.toString("utf8");
+      const decoded = decodeText(head, whole);
+      if (decoded === undefined) return { method, excerpt: "", complete: false };
+      method = "text";
+      text = decoded;
     }
     const normalized = text.replace(/[ \t]+/g, " ").trim();
     // Check all the text we read, not just the excerpt, so a secret just past the cut still counts.

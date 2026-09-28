@@ -1,11 +1,22 @@
+import fs from "node:fs";
 import path from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { extractExcerpt } from "../src/extract.js";
+import { scan } from "../src/scan.js";
+import { loadSummaries } from "../src/store/summaries.js";
 import { pdf, sandbox, write, zip } from "./helpers.js";
 
 let root: string;
 beforeEach(() => {
+  vi.stubEnv("TIDYBOT_HOME", undefined);
+  vi.stubEnv("TIDYBOT_NO_PROJECT", undefined);
+  vi.stubEnv("TIDYBOT_PROJECT", undefined);
   root = sandbox();
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  fs.rmSync(root, { recursive: true, force: true });
 });
 
 describe("extractExcerpt", () => {
@@ -66,5 +77,46 @@ describe("extractExcerpt", () => {
     const r = await extractExcerpt(write(path.join(root, "broken.docx"), "not a zip"), 500);
     expect(r.excerpt).toBe("");
     expect(r.error).toBeTruthy();
+  });
+});
+
+describe("extraction completeness", () => {
+  it.each(["你好世界", "abcéxyz", "abc🌍xyz"])("recognizes valid UTF-8 text: %s", async (text) => {
+    const file = write(path.join(root, "notes.txt"), text);
+    expect(await extractExcerpt(file, 100)).toMatchObject({ method: "text", excerpt: text, complete: true });
+  });
+
+  it("accepts a bounded read ending partway through a UTF-8 character", async () => {
+    const file = write(path.join(root, "notes.txt"), "a".repeat(8191) + "世界");
+    const result = await extractExcerpt(file, 100);
+    expect(result).toMatchObject({ method: "text", excerpt: "a".repeat(100), complete: false });
+    expect(result.excerpt).not.toContain("�");
+  });
+
+  it("rejects invalid UTF-8 even in the final bytes of a complete file", async () => {
+    const file = write(path.join(root, "notes.txt"), Buffer.concat([Buffer.from("plain words"), Buffer.from([0xff])]));
+    expect(await extractExcerpt(file, 100)).toMatchObject({ method: "none", excerpt: "", complete: false });
+  });
+
+  it("does not cache an incomplete worksheet preview as the complete document", async () => {
+    const file = write(path.join(root, "budget.xlsx"), await zip({
+      "[Content_Types].xml": `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>`,
+      "_rels/.rels": `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`,
+      "xl/workbook.xml": `<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets></workbook>`,
+      "xl/_rels/workbook.xml.rels": `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>`,
+      "xl/worksheets/sheet1.xml": `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>Quarterly revenue</t></is></c><c r="B1"><v>250000</v></c></row></sheetData></worksheet>`,
+    }));
+    const result = await scan(root, { maxFiles: 10, excerptChars: 1000 });
+    const entry = result.files.find((f) => f.path === file);
+    expect(entry).toBeDefined();
+    expect(entry?.extractError).toBeUndefined();
+    // Both fixes are valid: extract the cells, or request a proper summary.
+    if (entry?.complete) {
+      expect(entry.excerpt).toContain("Quarterly revenue");
+      expect(entry.excerpt).toContain("250000");
+    } else {
+      expect(entry?.needsSummary).toBe("recommended");
+      expect(loadSummaries().has(entry!.hash!)).toBe(false);
+    }
   });
 });

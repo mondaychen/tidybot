@@ -5,36 +5,10 @@ import { availableName, sameFile } from "./names.js";
 import { loadConfig } from "./store/config.js";
 import { type MoveEntry, loadMoves, newId, record, trimHistory } from "./store/history.js";
 import { type Plan, savePlan, targetPath } from "./store/plans.js";
-import { FileIndex } from "./store/summaries.js";
+import { recordedMove, recoverPendingMoves, withMoveLock } from "./store/operations.js";
+export { moveFile } from "./file-move.js";
 
 export type ConflictPolicy = "fail" | "rename";
-
-/**
- * Move without ever overwriting. Handles case-only renames on case-insensitive filesystems
- * (where `to` "exists" because it is `from`), and falls back to copy+delete across filesystems,
- * keeping the modified time.
- */
-export function moveFile(from: string, to: string): void {
-  if (fs.existsSync(to)) {
-    if (!sameFile(from, to)) throw new TidyError(`destination already exists: ${to}`, "conflict");
-    if (path.basename(from) === path.basename(to) && path.dirname(from) === path.dirname(to)) return;
-    // Case/normalization-only rename: go through a temporary name so every filesystem notices.
-    const tmp = path.join(path.dirname(to), `.tidybot-${process.pid}-${Date.now()}.tmp`);
-    fs.renameSync(from, tmp);
-    fs.renameSync(tmp, to);
-    return;
-  }
-  fs.mkdirSync(path.dirname(to), { recursive: true });
-  try {
-    fs.renameSync(from, to);
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "EXDEV") throw err;
-    const st = fs.statSync(from);
-    fs.copyFileSync(from, to, fs.constants.COPYFILE_EXCL);
-    fs.utimesSync(to, st.atime, st.mtime);
-    fs.unlinkSync(from);
-  }
-}
 
 export interface ApplyResult {
   moved: { file: string; to: string; operationId: string }[];
@@ -43,23 +17,37 @@ export interface ApplyResult {
 }
 
 export function applyPlan(plan: Plan, opts: { dryRun?: boolean; onConflict?: ConflictPolicy } = {}): ApplyResult {
+  if (plan.discarded) throw new TidyError(`Plan ${plan.id} was discarded.`, "discarded");
+  return withMoveLock(() => {
+    recoverPendingMoves();
+    // Recovery may have completed a move whose plan update was interrupted.
+    for (const move of loadMoves().filter((m) => m.planId === plan.id)) {
+      const item = plan.items.find((i) => i.file === move.from);
+      if (item) {
+        item.status = "moved";
+        item.operationId = move.id;
+        item.note = undefined;
+      }
+    }
+    return applyPending(plan, opts);
+  });
+}
+
+function applyPending(plan: Plan, opts: { dryRun?: boolean; onConflict?: ConflictPolicy }): ApplyResult {
   const result: ApplyResult = { moved: [], failed: [] };
   const pending = plan.items.filter((i) => i.status === "pending" && i.destination);
   if (opts.dryRun) {
     result.wouldMove = pending.map((i) => ({ file: i.file, to: targetPath(i) as string }));
     return result;
   }
-  const index = new FileIndex();
   for (const item of pending) {
     let to = targetPath(item) as string;
     try {
       if (!fs.existsSync(item.file)) throw new TidyError("file no longer exists");
       if (path.resolve(item.file) === path.resolve(to)) throw new TidyError("file is already in its destination");
       if (fs.existsSync(to) && !sameFile(item.file, to) && opts.onConflict === "rename") to = availableName(to);
-      moveFile(item.file, to);
-      index.moved(item.file, to);
       const operationId = newId("m");
-      record({ kind: "move", id: operationId, at: new Date().toISOString(), planId: plan.id, from: item.file, to });
+      recordedMove(item.file, to, { kind: "move", id: operationId, at: new Date().toISOString(), planId: plan.id, from: item.file, to });
       item.status = "moved";
       item.operationId = operationId;
       item.note = undefined;
@@ -67,11 +55,14 @@ export function applyPlan(plan: Plan, opts: { dryRun?: boolean; onConflict?: Con
     } catch (err) {
       item.status = "failed";
       item.note = err instanceof Error ? err.message : String(err);
+      if (err instanceof TidyError && err.code === "recovery_required") {
+        savePlan(plan);
+        throw err; // Resolve this operation before starting another move.
+      }
       result.failed.push({ file: item.file, error: item.note });
     }
-    savePlan(plan); // persist after each file so a crash never loses track of a move
+    savePlan(plan); // The journal covers interruptions before this update.
   }
-  index.save();
   if (result.moved.length) trimHistory(loadConfig().historyMaxMoves);
   return result;
 }
@@ -103,21 +94,25 @@ export function selectMoves(sel: { ids?: string[]; planId?: string; last?: boole
 }
 
 export function undoMoves(moves: MoveEntry[]): UndoResult {
+  return withMoveLock(() => {
+    recoverPendingMoves();
+    return undoSelected(moves);
+  });
+}
+
+function undoSelected(moves: MoveEntry[]): UndoResult {
   const result: UndoResult = { undone: [], failed: [] };
-  const index = new FileIndex();
   // Reverse order so chained moves unwind correctly.
   for (const m of [...moves].reverse()) {
     try {
       if (!fs.existsSync(m.to)) throw new TidyError(`file is no longer at ${m.to}`);
-      moveFile(m.to, m.from);
-      index.moved(m.to, m.from);
-      record({ kind: "undo", id: newId("u"), at: new Date().toISOString(), target: m.id });
+      recordedMove(m.to, m.from, { kind: "undo", id: newId("u"), at: new Date().toISOString(), target: m.id });
       result.undone.push({ id: m.id, from: m.to, to: m.from });
     } catch (err) {
+      if (err instanceof TidyError && err.code === "recovery_required") throw err;
       result.failed.push({ id: m.id, error: err instanceof Error ? err.message : String(err) });
     }
   }
-  index.save();
   if (result.undone.length) trimHistory(loadConfig().historyMaxMoves);
   return result;
 }

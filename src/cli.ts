@@ -24,6 +24,7 @@ import {
 } from "./store/config.js";
 import { addFolder, foldersFile, importFolders, loadFolders, removeFolder, saveFolders, updateFolder } from "./store/folders.js";
 import { loadMoves, trimHistory } from "./store/history.js";
+import { recoverMoves } from "./store/operations.js";
 import { parseStructured, writeYaml } from "./store/io.js";
 import { listPlans, loadPlan, planState, savePlan } from "./store/plans.js";
 import { FileIndex, compactSummaries, findSummaries } from "./store/summaries.js";
@@ -68,6 +69,7 @@ const program = new Command("tidybot")
     const o = cmd.optsWithGlobals();
     setJsonMode(!!o.json);
     setScopeOverride({ global: o.global, project: o.project });
+    recoverMoves();
   })
   .showHelpAfterError();
 

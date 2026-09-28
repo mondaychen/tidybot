@@ -111,6 +111,8 @@ Every rule has an ID (`tidybot sensitive rules`), and false positives can be all
 | `sensitive list` / `revoke <file\|hash>` | Reviews or removes exceptions | You |
 
 File exceptions are tied to the file's content hash. If the file changes, it's checked again.
+Cached summaries are checked against the current sensitivity rules on every read, including
+`find` and `summary list`, so revoking an exception takes effect immediately.
 
 ## Per-project settings (advanced)
 
@@ -130,12 +132,19 @@ Commands run anywhere under that directory pick it up, the same way git finds it
   config.yaml               # settings, naming style, rules
   folders.yaml              # smart folders — hand-editable
   plans/<id>.json           # one file per plan
+  operations/<id>.json      # recovery journals for moves/undos in progress
+  move-locks/              # temporary process locks while moving or recovering
   history.jsonl             # append-only: move / undo / forget
   summaries.jsonl           # append-only: content hash → summary + keywords
   index.json                # path → hash cache (skips rehashing; lets `find` locate files)
   allowlist.json            # per-file sensitive-detection exceptions, keyed by content hash
 <project>/.tidybot/         # optional per-project config.yaml + folders.yaml
 ```
+
+Moves and undo use exclusive destination creation to prevent overwrites, including races with
+other writers. Interrupted operations are reconciled at the next command: a completed move is
+recorded, or an incomplete move is rolled back. If files have changed and recovery is ambiguous,
+tidybot preserves them and reports the recovery journal's path. Discarded plans cannot be applied.
 
 ## Develop
 

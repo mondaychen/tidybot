@@ -5,6 +5,13 @@ import fs from "node:fs";
 export const FULL_HASH_LIMIT = 64 * 1024 * 1024;
 const SAMPLE = 4 * 1024 * 1024;
 
+/** Stream the entire file when equality, rather than a cache hint, is required. */
+export async function fullHashFile(file: string): Promise<string> {
+  const h = createHash("sha256");
+  for await (const chunk of fs.createReadStream(file)) h.update(chunk as Buffer);
+  return `sha256:${h.digest("hex")}`;
+}
+
 /**
  * Content hash used as the summary-cache key.
  * `sha256:` = whole file; `quick:` = size + first/last 4 MiB (large files only).
@@ -12,8 +19,7 @@ const SAMPLE = 4 * 1024 * 1024;
 export async function hashFile(file: string, size: number): Promise<string> {
   const h = createHash("sha256");
   if (size <= FULL_HASH_LIMIT) {
-    for await (const chunk of fs.createReadStream(file)) h.update(chunk as Buffer);
-    return `sha256:${h.digest("hex")}`;
+    return fullHashFile(file);
   }
   const fd = await fs.promises.open(file, "r");
   try {

@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { TidyError } from "./errors.js";
 import { extractExcerpt, mimeOf } from "./extract.js";
+import { fullHashFile } from "./hash.js";
 import { contractHome, isWithin, resolvePath } from "./paths.js";
 import type { SmartFolder } from "./store/folders.js";
 import { loadAllowances, waiversFor } from "./store/allowlist.js";
@@ -216,7 +217,7 @@ export interface DuplicateGroup {
 }
 
 /** Group identical files (same content hash). Empty files are ignored. */
-export function findDuplicates(files: FileEntry[], index = new FileIndex()): DuplicateGroup[] {
+export async function findDuplicates(files: FileEntry[], index = new FileIndex()): Promise<DuplicateGroup[]> {
   const byHash = new Map<string, FileEntry[]>();
   for (const f of files) {
     if (!f.hash || f.size === 0) continue;
@@ -226,9 +227,30 @@ export function findDuplicates(files: FileEntry[], index = new FileIndex()): Dup
   for (const [hash, group] of byHash) {
     const scanned = new Set(group.map((f) => f.path));
     const elsewhere = index.pathsFor(hash).filter((p) => !scanned.has(p));
-    if (group.length > 1 || elsewhere.length > 0) {
+    if (group.length + elsewhere.length < 2) continue;
+    if (!hash.startsWith("quick:")) {
       groups.push({ hash, size: group[0]?.size ?? 0, files: group.map((f) => f.rel), elsewhere: elsewhere.map(contractHome) });
+      continue;
     }
+    // Sampling only identifies candidates. Verify every member, including
+    // indexed copies outside this scan, before suggesting identical duplicates.
+    const verified = new Map<string, DuplicateGroup>();
+    for (const file of [...scanned, ...elsewhere]) {
+      try {
+        const before = await fs.promises.stat(file);
+        const fullHash = await fullHashFile(file);
+        const after = await fs.promises.stat(file);
+        if (before.size !== after.size || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs) continue;
+        const match = verified.get(fullHash) ?? { hash: fullHash, size: after.size, files: [], elsewhere: [] };
+        const entry = group.find((f) => f.path === file);
+        if (entry) match.files.push(entry.rel);
+        else match.elsewhere.push(contractHome(file));
+        verified.set(fullHash, match);
+      } catch {
+        // A vanished/unreadable candidate is not a verified duplicate.
+      }
+    }
+    groups.push(...[...verified.values()].filter((g) => g.files.length > 0 && g.files.length + g.elsewhere.length > 1));
   }
   return groups.sort((a, b) => b.size - a.size);
 }
@@ -236,7 +258,7 @@ export function findDuplicates(files: FileEntry[], index = new FileIndex()): Dup
 export async function scan(dir: string, opts: ScanOptions) {
   const listing = listFiles(dir, opts);
   await enrich(listing.files, opts);
-  return { ...listing, duplicates: opts.noHash ? [] : findDuplicates(listing.files) };
+  return { ...listing, duplicates: opts.noHash ? [] : await findDuplicates(listing.files) };
 }
 
 /** Full details for specific files (the second step after a compact scan). */
