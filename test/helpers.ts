@@ -46,3 +46,12 @@ export function pdf(text: string): Buffer {
   out += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
   return Buffer.from(out, "latin1");
 }
+
+/** Is the temp filesystem case-insensitive (default APFS/NTFS)? */
+export function caseInsensitiveFs(): boolean {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), "tb-case-"));
+  fs.writeFileSync(path.join(d, "a"), "");
+  const result = fs.existsSync(path.join(d, "A"));
+  fs.rmSync(d, { recursive: true });
+  return result;
+}

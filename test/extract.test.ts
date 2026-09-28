@@ -120,3 +120,22 @@ describe("extraction completeness", () => {
     }
   });
 });
+
+describe("bounded reads", () => {
+  it("doesn't open known binary types", async () => {
+    const r = await extractExcerpt(write(path.join(root, "big.dmg"), "plain text pretending"), 100);
+    expect(r).toMatchObject({ excerpt: "", skipped: "binary type" });
+  });
+
+  it("reads only the head of large text files", async () => {
+    const f = write(path.join(root, "huge.log"), "line of log text\n".repeat(200_000)); // ~3.4 MB
+    const r = await extractExcerpt(f, 100);
+    expect(r.excerpt.length).toBe(100);
+    expect(r.complete).toBe(false);
+  });
+
+  it("limits PDF parsing to the first pages", async () => {
+    const r = await extractExcerpt(write(path.join(root, "a.pdf"), pdf("Short notice")), 500);
+    expect(r).toMatchObject({ method: "pdf", complete: true });
+  });
+});

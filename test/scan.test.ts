@@ -2,7 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { scan } from "../src/scan.js";
-import { sandbox } from "./helpers.js";
+import { loadSummaries } from "../src/store/summaries.js";
+import { sandbox, write } from "./helpers.js";
 
 let root: string;
 let dl: string;
@@ -66,5 +67,25 @@ describe("large-file duplicates", () => {
     expect(result.duplicates[0]?.files).toEqual(["same.bin"]);
     expect(result.duplicates[0]?.elsewhere).toEqual([filed]);
     expect(result.duplicates[0]?.hash).toMatch(/^sha256:/);
+  });
+});
+
+describe("sensitive file scanning", () => {
+  it("scan withholds excerpts and never auto-caches secrets", async () => {
+    write(path.join(dl, "github-recovery-codes.txt"), "ab12-cd34\nef56-gh78\n");
+    write(path.join(dl, "notes.txt"), "AWS key AKIAABCDEFGHIJKLMNOP for staging");
+    write(path.join(dl, "ok.txt"), "shopping list");
+    const { files } = await scan(dl, { maxFiles: 10, excerptChars: 500 });
+    const by = Object.fromEntries(files.map((f) => [f.name, f]));
+    expect(by["github-recovery-codes.txt"]).toMatchObject({ sensitive: "recovery codes" });
+    expect(by["notes.txt"]).toMatchObject({ sensitive: "AWS access key" });
+    for (const n of ["github-recovery-codes.txt", "notes.txt"]) {
+      expect(by[n]?.excerpt).toBeUndefined();
+      expect(by[n]?.needsSummary).toBeUndefined();
+    }
+    const cached = JSON.stringify([...loadSummaries().values()]);
+    expect(cached).toContain("shopping list");
+    expect(cached).not.toContain("AKIA");
+    expect(cached).not.toContain("ab12");
   });
 });

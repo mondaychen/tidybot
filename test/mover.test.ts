@@ -8,7 +8,7 @@ import { addFolder } from "../src/store/folders.js";
 import { loadMoves } from "../src/store/history.js";
 import { FileIndex } from "../src/store/summaries.js";
 import { getSummaries } from "../src/summarize.js";
-import { sandbox, write } from "./helpers.js";
+import { caseInsensitiveFs, sandbox, write } from "./helpers.js";
 
 let root: string;
 let dl: string;
@@ -146,5 +146,24 @@ describe("cache identity after edits", () => {
     expect(result?.hash).not.toBe(oldHash);
     expect(result?.summary?.summary).not.toBe("old data");
     expect(fs.readFileSync(destination, "utf8")).toBe("new data");
+  });
+});
+
+describe("filename handling", () => {
+  it("a long Chinese rename succeeds at apply time", () => {
+    write(path.join(dl, "3f2a.pdf"), "x");
+    const plan = propose([{ file: "3f2a.pdf", folder: "Docs", rename: "年度财务报告".repeat(30) }], { source: dl });
+    const r = applyPlan(plan);
+    expect(r.failed).toEqual([]);
+  });
+
+  it.runIf(caseInsensitiveFs())("renames a file to a case-only variant and undoes it", () => {
+    write(path.join(dl, "report.pdf"), "x");
+    const plan = propose([{ file: "report.pdf", folder: null, rename: "Report" }], { source: dl });
+    expect(plan.items[0]?.warnings).toBeUndefined();
+    expect(applyPlan(plan).failed).toEqual([]);
+    expect(fs.readdirSync(dl)).toEqual(["Report.pdf"]);
+    undoMoves(selectMoves({ last: true }));
+    expect(fs.readdirSync(dl)).toEqual(["report.pdf"]);
   });
 });

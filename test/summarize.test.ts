@@ -5,7 +5,7 @@ import { allowFiles } from "../src/allow.js";
 import { scan } from "../src/scan.js";
 import { removeAllowance } from "../src/store/allowlist.js";
 import { findSummaries } from "../src/store/summaries.js";
-import { getSummaries, listSummaries } from "../src/summarize.js";
+import { getSummaries, listSummaries, saveSummaries } from "../src/summarize.js";
 import { sandbox, write } from "./helpers.js";
 
 let root: string;
@@ -58,5 +58,14 @@ describe("sensitive content after revocation", () => {
     fs.unlinkSync(file);
     expect(listSummaries({ includeMissing: true })).toEqual([]);
     expect(findSummaries("changeme123", { limit: 10, includeMissing: true })).toEqual([]);
+  });
+});
+
+describe("summary validation", () => {
+  it("rejects agent summaries containing secret values", async () => {
+    const f = write(path.join(dl, "creds.json"), "{}");
+    await expect(saveSummaries([{ file: f, summary: "Google OAuth file, client_secret: GOCSPX-123456" }], { base: dl })).rejects.toThrow(/secret/);
+    await saveSummaries([{ file: f, summary: "Google OAuth client credentials for the CLI project" }], { base: dl });
+    expect(listSummaries()).toHaveLength(1);
   });
 });
