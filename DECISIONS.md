@@ -51,6 +51,11 @@ rest for a CLI that an agent drives. Open questions are collected at the end und
    - YAML for files people edit: `config.yaml`, `folders.yaml`.
    - JSON for machine-rewritten files: `plans/<id>.json`, `index.json`.
    - Append-only JSONL for logs: `history.jsonl`, `summaries.jsonl`. The last record wins.
+   - Retention is capped by record count, not bytes or lines: `historyMaxMoves` keeps the newest N moves
+     plus their undo/forget records (a raw line cut could orphan an undo), and `summariesMax` keeps the N
+     most recently written summaries. Both default to 0 (unlimited). They're enforced after each write
+     (apply, undo, forget, summary save, scan) and by `tidybot compact`. Superseded summary records are
+     always dropped when summaries are written. Dropped moves can't be undone.
    - Writes are atomic (temp file + rename). There's no locking, which is fine for a single-user CLI.
 
 6. **Global state with optional per-project settings.** `tidybot init` creates `<dir>/.tidybot/`, which is

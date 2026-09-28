@@ -2,7 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { TidyError } from "./errors.js";
 import { availableName, sameFile } from "./names.js";
-import { type MoveEntry, loadMoves, newId, record } from "./store/history.js";
+import { loadConfig } from "./store/config.js";
+import { type MoveEntry, loadMoves, newId, record, trimHistory } from "./store/history.js";
 import { type Plan, savePlan, targetPath } from "./store/plans.js";
 import { FileIndex } from "./store/summaries.js";
 
@@ -71,6 +72,7 @@ export function applyPlan(plan: Plan, opts: { dryRun?: boolean; onConflict?: Con
     savePlan(plan); // persist after each file so a crash never loses track of a move
   }
   index.save();
+  if (result.moved.length) trimHistory(loadConfig().historyMaxMoves);
   return result;
 }
 
@@ -116,6 +118,7 @@ export function undoMoves(moves: MoveEntry[]): UndoResult {
     }
   }
   index.save();
+  if (result.undone.length) trimHistory(loadConfig().historyMaxMoves);
   return result;
 }
 
@@ -125,5 +128,6 @@ export function forgetMove(id: string): MoveEntry {
   if (!m) throw new TidyError(`No history entry "${id}"`, "not_found");
   if (m.state !== "active") throw new TidyError(`History entry ${id} is already ${m.state}`);
   record({ kind: "forget", id: newId("f"), at: new Date().toISOString(), target: id });
+  trimHistory(loadConfig().historyMaxMoves);
   return { ...m, state: "forgotten" };
 }

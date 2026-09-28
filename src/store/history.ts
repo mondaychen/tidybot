@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import path from "node:path";
 import { tidybotHome } from "../paths.js";
-import { appendJsonl, readJsonl } from "./io.js";
+import { appendJsonl, readJsonl, writeJsonl } from "./io.js";
 
 /** Append-only log. State is derived by folding the records. */
 export type HistoryRecord =
@@ -44,4 +44,22 @@ export function loadMoves(): MoveEntry[] {
     }
   }
   return [...moves.values()];
+}
+
+/**
+ * Keep only the newest `max` moves (0 = unlimited), along with the undo/forget records that
+ * target them. Older moves can no longer be undone. Returns how many moves were dropped.
+ */
+export function trimHistory(max: number): number {
+  if (max <= 0) return 0;
+  const records = readJsonl<HistoryRecord>(historyFile());
+  const moveIds = records.filter((r) => r.kind === "move").map((r) => r.id);
+  const dropped = moveIds.length - max;
+  if (dropped <= 0) return 0;
+  const keep = new Set(moveIds.slice(dropped));
+  writeJsonl(
+    historyFile(),
+    records.filter((r) => keep.has(r.kind === "move" ? r.id : r.target)),
+  );
+  return dropped;
 }

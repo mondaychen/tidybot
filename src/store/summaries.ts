@@ -3,7 +3,7 @@ import path from "node:path";
 import { z } from "zod";
 import { hashFile } from "../hash.js";
 import { tidybotHome } from "../paths.js";
-import { appendJsonl, readJson, readJsonl, writeJson } from "./io.js";
+import { appendJsonl, readJson, readJsonl, writeJson, writeJsonl } from "./io.js";
 
 /**
  * File summaries, keyed by content hash so they survive renames and moves.
@@ -44,6 +44,25 @@ export function loadSummaries(): Map<string, Summary> {
 
 export function appendSummary(s: Summary): void {
   appendJsonl(summariesFile(), s);
+}
+
+/**
+ * Rewrite summaries.jsonl with one record per hash (superseded records are dropped), keeping
+ * only the `max` most recently written (0 = unlimited). Returns how many records were removed.
+ */
+export function compactSummaries(max: number): number {
+  const records = readJsonl<Summary>(summariesFile());
+  // A Map keeps first-insertion order, so re-insert to order by the latest write.
+  const latest = new Map<string, Summary>();
+  for (const s of records) {
+    latest.delete(s.hash);
+    latest.set(s.hash, s);
+  }
+  let kept = [...latest.values()];
+  if (max > 0 && kept.length > max) kept = kept.slice(kept.length - max);
+  const removed = records.length - kept.length;
+  if (removed > 0) writeJsonl(summariesFile(), kept);
+  return removed;
 }
 
 interface IndexEntry {

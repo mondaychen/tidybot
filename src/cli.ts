@@ -23,10 +23,10 @@ import {
   unsetConfigValue,
 } from "./store/config.js";
 import { addFolder, foldersFile, importFolders, loadFolders, removeFolder, saveFolders, updateFolder } from "./store/folders.js";
-import { loadMoves } from "./store/history.js";
+import { loadMoves, trimHistory } from "./store/history.js";
 import { parseStructured, writeYaml } from "./store/io.js";
 import { listPlans, loadPlan, planState, savePlan } from "./store/plans.js";
-import { FileIndex, findSummaries } from "./store/summaries.js";
+import { FileIndex, compactSummaries, findSummaries } from "./store/summaries.js";
 import { getSummaries, listSummaries, saveSummaries } from "./summarize.js";
 import { survey } from "./survey.js";
 import { allowFiles } from "./allow.js";
@@ -726,6 +726,16 @@ program
     emit({ ok: true, project: target, folders: initial.length }, () =>
       `Created ${contractHome(target)} with ${initial.length} smart folder(s).\nCommands run under ${contractHome(root)} now use these settings (override with --global).`,
     );
+  });
+
+program
+  .command("compact")
+  .description("apply historyMaxMoves and summariesMax now, and drop superseded summary records")
+  .action(() => {
+    const c = loadConfig();
+    const moves = trimHistory(c.historyMaxMoves);
+    const summaries = compactSummaries(c.summariesMax);
+    emit({ ok: true, droppedMoves: moves, droppedSummaries: summaries }, () => `Dropped ${moves} move(s) and ${summaries} summary record(s).`);
   });
 
 program

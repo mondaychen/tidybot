@@ -24,6 +24,10 @@ const fields = {
   rename: z.enum(RENAME_MODES),
   /** Naming style guidance for renames, in the user's words. */
   naming: z.string(),
+  /** Moves kept in history.jsonl (0 = unlimited). Older moves can no longer be undone. */
+  historyMaxMoves: z.number().int().min(0),
+  /** Summaries kept in summaries.jsonl, most recently written first (0 = unlimited). */
+  summariesMax: z.number().int().min(0),
   /** Extra instructions that don't belong to a single smart folder. */
   rules: z.array(z.string()),
   /** Sensitive-detection rule ids turned off (see `tidybot sensitive rules`). */
@@ -43,13 +47,15 @@ export const ConfigSchema = z.object({
   skipOrganized: fields.skipOrganized.default(true),
   rename: fields.rename.default("auto"),
   naming: fields.naming.default(""),
+  historyMaxMoves: fields.historyMaxMoves.default(0),
+  summariesMax: fields.summariesMax.default(0),
   rules: fields.rules.default([]),
   allowRules: fields.allowRules.default([]),
 });
 export type Config = z.infer<typeof ConfigSchema>;
 
 /** Keys settable with `config set`; list-valued `rules` has its own command. */
-export const SCALAR_KEYS = ["source", "excerptChars", "maxFiles", "previewChars", "olderThan", "skipOrganized", "rename", "naming"] as const;
+export const SCALAR_KEYS = ["source", "excerptChars", "maxFiles", "previewChars", "olderThan", "skipOrganized", "rename", "naming", "historyMaxMoves", "summariesMax"] as const;
 export type ScalarKey = (typeof SCALAR_KEYS)[number];
 
 export type Scope = "global" | "project";

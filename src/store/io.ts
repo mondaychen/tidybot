@@ -37,6 +37,11 @@ export function readJsonl<T>(file: string): T[] {
     .map((line) => JSON.parse(line) as T);
 }
 
+/** Replace a JSONL file's contents (atomically). */
+export function writeJsonl(file: string, records: unknown[]): void {
+  writeAtomic(file, records.map((r) => `${JSON.stringify(r)}\n`).join(""));
+}
+
 export function appendJsonl(file: string, record: unknown): void {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.appendFileSync(file, `${JSON.stringify(record)}\n`);

@@ -6,7 +6,8 @@ import { mimeOf } from "./extract.js";
 import { resolvePath } from "./paths.js";
 import { sensitiveByContent } from "./sensitive.js";
 import { loadAllowances } from "./store/allowlist.js";
-import { FileIndex, type Summary, SummaryInputSchema, appendSummary, loadSummaries } from "./store/summaries.js";
+import { loadConfig } from "./store/config.js";
+import { FileIndex, type Summary, SummaryInputSchema, appendSummary, compactSummaries, loadSummaries } from "./store/summaries.js";
 
 /** Store summaries written by an agent (or its subagents). Files are hashed by tidybot, not trusted from input. */
 export async function saveSummaries(input: unknown, opts: { base: string; model?: string; allowRules?: string[] }): Promise<Summary[]> {
@@ -60,6 +61,7 @@ export async function saveSummaries(input: unknown, opts: { base: string; model?
     saved.push(record);
   }
   index.save();
+  compactSummaries(loadConfig().summariesMax);
   return saved;
 }
 

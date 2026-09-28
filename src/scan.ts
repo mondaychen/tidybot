@@ -5,7 +5,8 @@ import { extractExcerpt, mimeOf } from "./extract.js";
 import { contractHome, isWithin, resolvePath } from "./paths.js";
 import type { SmartFolder } from "./store/folders.js";
 import { loadAllowances, waiversFor } from "./store/allowlist.js";
-import { FileIndex, appendSummary, loadSummaries } from "./store/summaries.js";
+import { loadConfig } from "./store/config.js";
+import { FileIndex, appendSummary, compactSummaries, loadSummaries } from "./store/summaries.js";
 
 export type SummaryNeed = "required" | "recommended";
 
@@ -168,6 +169,7 @@ export async function enrich(
   const summaries = opts.noHash ? new Map() : loadSummaries();
   const allowances = loadAllowances();
   const disabled = new Set(opts.allowRules ?? []);
+  let cachedNew = false;
   // Bounded reads keep memory flat, but PDF/Office parsing still buffers up to MAX_DOC_BYTES each.
   await mapLimit(files, 4, async (f) => {
     // Hash first: per-file allowances are keyed by content hash.
@@ -195,11 +197,13 @@ export async function enrich(
       const s = { hash: f.hash, summary: excerpt, keywords: [], name: f.name, mime: f.mime, source: "content" as const, at: new Date().toISOString() };
       appendSummary(s);
       summaries.set(f.hash, s);
+      cachedNew = true;
     } else if (excerpt) {
       f.needsSummary = "recommended";
     }
   });
   index?.save();
+  if (cachedNew) compactSummaries(loadConfig().summariesMax);
 }
 
 export interface DuplicateGroup {

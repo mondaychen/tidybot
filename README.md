@@ -58,7 +58,8 @@ Requires Node 20+.
 | `find <words...>` | Searches files by summary, keywords and name |
 | `folders list \| add \| edit \| rm` | Smart folders |
 | `rules`, `rules add \| rm`, `rules naming [style]` | General rules and naming style for the agent |
-| `config get \| set \| unset` | `source`, `excerptChars`, `previewChars`, `maxFiles`, `olderThan`, `skipOrganized`, `rename` (auto/always/off), `naming` |
+| `config get \| set \| unset` | `source`, `excerptChars`, `previewChars`, `maxFiles`, `olderThan`, `skipOrganized`, `rename` (auto/always/off), `naming`, `historyMaxMoves`, `summariesMax` (0 = unlimited) |
+| `compact` | Applies `historyMaxMoves` / `summariesMax` now and drops superseded summaries (also runs automatically after writes) |
 | `init [dir] [--copy-global]` | Creates per-project settings (see below) |
 | `status` | Active scope, counts, open plans |
 
