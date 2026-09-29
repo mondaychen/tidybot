@@ -3,7 +3,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { scan } from "../src/scan.js";
 import { loadSummaries } from "../src/store/summaries.js";
-import { sandbox, write } from "./helpers.js";
+import { pdf, sandbox, write } from "./helpers.js";
 
 let root: string;
 let dl: string;
@@ -94,5 +94,15 @@ describe("sensitive file scanning", () => {
     expect(cached).toContain("shopping list");
     expect(cached).not.toContain("AKIA");
     expect(cached).not.toContain("ab12");
+  });
+});
+
+describe("documents without text", () => {
+  it("asks for a summary of a PDF with no text layer, like a scan", async () => {
+    write(path.join(dl, "scan0001.pdf"), pdf(""));
+    const [file] = (await scan(dl, { maxFiles: 10, excerptChars: 100 })).files;
+    expect(file).toMatchObject({ mime: "application/pdf", needsSummary: "recommended" });
+    expect(file?.excerpt).toBeUndefined();
+    expect(file?.extractError).toBeUndefined();
   });
 });

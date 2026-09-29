@@ -6,10 +6,11 @@ cached automatically).
 
 ## Steps
 1. `tidybot summary todo [dir] [-r]` lists files that need a summary, with
-   `need` = "required" (images) or "recommended" (long documents).
+   `need` = "required" (images) or "recommended" (long documents, and documents with no text such as
+   scanned PDFs).
 2. Delegate the reading. If you can spawn subagents, use a cheap/fast model or low
    reasoning effort (e.g. Haiku) and give each subagent a batch of ~5–10 file paths.
-   Images need a multimodal model that can view image files. If you can't delegate,
+   Images and scanned documents need a multimodal model that can view them. If you can't delegate,
    read the files yourself.
 3. Subagent prompt (adapt as needed):
 

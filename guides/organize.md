@@ -9,7 +9,7 @@ tidybot gathers the facts and performs the moves; a human reviews your plan firs
    - `rules`, `naming`, `rename`: the user's extra instructions, naming style and rename mode
    - `files`: `rel`, type, size, date, and either a cached `summary` or a short `preview`.
      Flags: `more` (longer text available), `needsSummary` ("required" for images,
-     "recommended" for long documents), `sensitive`, `duplicate`.
+     "recommended" for long documents and for documents with no text, like scanned PDFs), `sensitive`, `duplicate`.
    - `duplicates`: groups of identical files, including copies already filed elsewhere
    - `nextOffset`: present when there are more files; scan again with `--offset <n>`.
    Files already inside a smart folder are skipped (`skippedFolders`). So are recent files

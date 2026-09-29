@@ -30,7 +30,7 @@ export interface FileEntry {
   sensitiveRule?: string;
   summary?: string;
   keywords?: string[];
-  /** Set when no cached summary exists and one would help (required for images). */
+  /** Set when no cached summary exists and one would help (required for images; recommended for long or text-less documents). */
   needsSummary?: SummaryNeed;
 }
 
@@ -199,6 +199,9 @@ export async function enrich(
       summaries.set(f.hash, s);
       cachedNew = true;
     } else if (excerpt) {
+      f.needsSummary = "recommended";
+    } else if (r.method !== "none" && r.method !== "text" && !r.error) {
+      // A document that parsed but has no text, such as a scanned PDF: only viewing it tells what it is.
       f.needsSummary = "recommended";
     }
   });

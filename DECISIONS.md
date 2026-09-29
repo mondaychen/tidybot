@@ -152,6 +152,7 @@ rest for a CLI that an agent drives. Open questions are collected at the end und
     - **When a summary is needed**:
       - Images: **required**. `propose` marks unsummarized images `invalid` unless you pass `--allow-unsummarized`.
       - Documents longer than the excerpt: **recommended**.
+      - PDF/Office documents with no text, such as scans: **recommended**, since only viewing them tells what they are.
       - Short text: never. Its text is auto-cached as a `source: content` summary so `find` covers it.
       - Archives, video, audio and other non-text files: not flagged, since there's nothing for a model to read.
     - **Delegation**: `guide summarize` tells the agent to use subagents on a cheap/fast model or at low
