@@ -699,10 +699,13 @@ def build_dev():
     # Tool/SDK directory (like google-cloud-sdk)
     d = "gcloud-cli"
     record(d, "Installers", when=days_ago(420), kind="dir", tags=["directory", "sdk", "reclaimable"])
-    for rel in ["bin/gcloud", "bin/gsutil", "lib/core/__init__.py", "VERSION"]:
+    # Distinct contents: files inside a directory aren't in the manifest, so identical ones
+    # would be duplicates that duplicate_groups doesn't list.
+    for rel, body in {"bin/gcloud": "#!/bin/sh\necho fake gcloud\n", "bin/gsutil": "#!/bin/sh\necho fake gsutil\n",
+                      "lib/core/__init__.py": "__version__ = '0.0.0-fixture'\n", "VERSION": "0.0.0-fixture\n"}.items():
         f = ROOT / d / rel
         f.parent.mkdir(parents=True, exist_ok=True)
-        write(f, "#!/bin/sh\necho fake\n" if rel.startswith("bin/") else "0.0.0-fixture\n")
+        write(f, body)
     random_bytes(ROOT / d / "lib" / "bundle.bin", 3 * 1024 * 1024)
 
     # Zip + already-extracted folder with the same content
