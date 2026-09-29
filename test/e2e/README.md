@@ -12,6 +12,9 @@ python3 test/e2e/make_downloads_test.py ~/Downloads-test --force   # reset after
 
 `--force` only wipes a folder that has the hidden `.tidybot-fixture` marker, so it can't erase a real folder.
 
+File ages are relative to when the fixture was built (`recent` means under 14 days old then), so rebuild it
+with `--force` before a test run.
+
 ## What's inside
 
 Everything generated uses fake identities: John/Jane/Emma Doe, Acme Robotics, SSN 123-45-6789, the Visa

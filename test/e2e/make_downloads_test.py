@@ -49,6 +49,7 @@ from reportlab.pdfgen import canvas
 MARKER = ".tidybot-fixture"  # hidden: tidybot skips dotfiles; guards --force
 RNG = random.Random(20260929)  # deterministic content
 NOW = datetime.now()
+RECENT = timedelta(days=14)  # matches `tidybot scan --older-than 14d`
 MANIFEST: list[dict] = []
 ROOT: Path
 
@@ -349,7 +350,7 @@ def build_home():
         "Electric usage: 612 kWh   Gas usage: 14 therms", "Amount due: $142.87 by 09/05/2026"])
 
     p = record("3f2a9c1e-77b0-4d1a-9b1e-2c7d1f0a8e55.pdf", "Home", when=days_ago(9),
-               tags=["bad-name", "uuid-name", "needs-content", "recent"], note="internet bill")
+               tags=["bad-name", "uuid-name", "needs-content"], note="internet bill")
     pdf(p, "Spectrum-like Internet - Your bill is ready", [
         f"Account holder: {JOHN}   Account 8347 1100 2233 4455", "Statement date: September 20, 2026",
         "Internet Ultra 500 Mbps  $80.00", "WiFi router rental  $5.00", "Total due Oct 14: $85.00"])
@@ -463,7 +464,7 @@ def build_kids():
         "We are pleased to offer Emma a seat in Kindergarten, Room 104, for the 2025-26 school year.",
         "Please return the enrollment packet by April 15."], author="Lincoln Elementary")
 
-    p = record("Field Trip Permission Slip 2B.pdf", "Kids & School", when=days_ago(6), tags=["recent"])
+    p = record("Field Trip Permission Slip 2B.pdf", "Kids & School", when=days_ago(6))
     pdf(p, "Class 2B Field Trip - Springfield Zoo", [
         "Date: October 9, 2026, 9:00am - 2:00pm. Cost: $12 (covers admission and bus).",
         "Student name: ______________  Parent signature: ______________",
@@ -504,7 +505,7 @@ def build_work():
         "reduced regression time 40%.", "Northwind Semis (2017-2021): PCIe Gen4 PHY validation.", "",
         "Education: B.S. Electrical Engineering, University of Washington, 2017",
         "Skills: SystemVerilog, UVM, Python, C, JEDEC DDR4/DDR5, AMBA AXI/APB"]
-    a = record("Resume - Alex Rivera.pdf", "Work / Hiring", when=days_ago(14), tags=["duplicate"])
+    a = record("Resume - Alex Rivera.pdf", "Work / Hiring", when=days_ago(16), tags=["duplicate"])
     pdf(a, "Alex Rivera - Resume", resume, author="Alex Rivera")
     b = record("Resume - Alex Rivera (1).pdf", "Work / Hiring", when=days_ago(13), tags=["duplicate"])
     copy(b, a)
@@ -515,7 +516,7 @@ def build_work():
                           "Built retrieval pipelines over 2M technical documents; LLM evaluation harnesses.",
                           "M.S. Computer Science, UT Austin"], author="Priya Nair")
 
-    p = record("Sam Okafor CV.docx", "Work / Hiring", when=days_ago(3), tags=["recent"])
+    p = record("Sam Okafor CV.docx", "Work / Hiring", when=days_ago(3))
     docx(p, "Sam Okafor - Curriculum Vitae", [
         "Verification engineer, 6 years. Formal verification (JasperGold), SVA, UCIe die-to-die adapters.",
         "Contact: sam.okafor@example.net"], author="Sam Okafor")
@@ -540,7 +541,7 @@ def build_work():
                          ["G&A", 140000, 142000, 150000, 151000], ["Sales", 210000, 230000, 260000, 300000]],
              "Headcount": [["Team", "Now", "EOY"], ["DV", 5, 8], ["ML", 4, 6]]})
 
-    p = record("meeting-notes-2026-09-24.md", "Work / Projects", when=days_ago(5), tags=["recent", "short-text"])
+    p = record("meeting-notes-2026-09-24.md", "Work / Projects", when=days_ago(5), tags=["short-text"])
     write(p, "# DV sync 2026-09-24\n\n- DDR5 refresh-management coverage at 87%\n"
              "- Alex Rivera onsite loop scheduled for Oct 2\n- Action: John to review UCIe adapter test plan\n")
 
@@ -549,7 +550,7 @@ def build_work():
         "Insured: Acme Robotics Inc.", "Certificate holder: Springfield Innovation Center",
         "General liability: $1,000,000 each occurrence", "Policy period: 06/01/2026 - 06/01/2027"])
 
-    p = record("output.pdf", "Work / Projects", when=days_ago(8), tags=["bad-name", "needs-content", "recent"],
+    p = record("output.pdf", "Work / Projects", when=days_ago(8), tags=["bad-name", "needs-content"],
                note="exported regression dashboard")
     pdf(p, "Nightly Regression Report - ddr5_ctrl", [
         "Run: 2026-09-20 02:00  Seeds: 500  Pass: 488  Fail: 12",
@@ -575,17 +576,17 @@ def build_travel():
             "Oct 12, 2026  UA 857  ORD 10:40 -> SFO 13:12  Seat 23C",
             "Oct 16, 2026  UA 1622 SFO 07:05 -> ORD 13:18  Seat 19A",
             "Hotel: Grand Harbor Hotel, 4 nights, confirmation GH-88213"]
-    a = record("Trip itinerary 3392797414 Oct 12, 2026.pdf", "Travel", when=days_ago(4), tags=["recent", "duplicate"])
+    a = record("Trip itinerary 3392797414 Oct 12, 2026.pdf", "Travel", when=days_ago(4), tags=["duplicate"])
     pdf(a, "Trip itinerary", itin)
-    b = record("TripId-3392797414.pdf", "Travel", when=days_ago(4), tags=["duplicate", "different-name", "recent"])
+    b = record("TripId-3392797414.pdf", "Travel", when=days_ago(4), tags=["duplicate", "different-name"])
     copy(b, a)
     MANIFEST[-1]["duplicate_of"] = "Trip itinerary 3392797414 Oct 12, 2026.pdf"
 
-    p = record("Boarding Pass UA857.pdf", "Travel", when=days_ago(1), tags=["recent"])
+    p = record("Boarding Pass UA857.pdf", "Travel", when=days_ago(1))
     pdf(p, "Boarding Pass", [f"DOE/JOHN   UA 857   ORD -> SFO   Oct 12   Group 3   Seat 23C",
                              "Gate B9  Boarding 10:05"])
 
-    p = record("UA857.pkpass", "Travel", when=days_ago(1), tags=["recent", "zip-container"])
+    p = record("UA857.pkpass", "Travel", when=days_ago(1), tags=["zip-container"])
     with zipfile.ZipFile(p, "w") as z:
         z.writestr("pass.json", json.dumps({"formatVersion": 1, "description": "Boarding pass UA 857",
                                             "organizationName": "Example Air", "serialNumber": "3392797414"}))
@@ -609,7 +610,7 @@ def build_receipts():
     pdf(p, "Receipt from Example Software Co.", ["Receipt #2291-4417", "Pro plan - annual  $96.00",
                                                  "Paid Aug 16, 2026 with Visa ****1111"])
 
-    p = record("Order #113-4455667 confirmation.pdf", "Receipts & Shopping", when=days_ago(10), tags=["recent"])
+    p = record("Order #113-4455667 confirmation.pdf", "Receipts & Shopping", when=days_ago(10))
     pdf(p, "Your order has shipped", ["Order #113-4455667", "Ergonomic desk chair  $289.99",
                                       "USB-C dock  $139.00", f"Ship to: {JOHN}, {ADDR}"])
 
@@ -630,7 +631,7 @@ def build_receipts():
                      size=(760, 1300), bg=(252, 250, 244), fsize=30, mono=True, rotate=4, noise=True)
     save_jpg(p, img, days_ago(19))
 
-    p = record("🎉 Birthday party invite.pdf", "Kids & School", when=days_ago(7), tags=["emoji-name", "recent"])
+    p = record("🎉 Birthday party invite.pdf", "Kids & School", when=days_ago(7), tags=["emoji-name"])
     pdf(p, "You're invited!", ["Ava turns 7!", "Saturday Oct 17, 2-4pm at Bounce Zone", "RSVP to Tom Brooks"])
 
 
@@ -745,7 +746,7 @@ def build_dev():
     MANIFEST.append({"path": f"{d}/Resume - Alex Rivera.pdf", "kind": "file", "category": "Work / Hiring",
                      "sensitive": None, "tags": ["duplicate", "nested", "same-name-as-top-level"],
                      "origin": "generated", "duplicate_of": "Resume - Alex Rivera.pdf", "note": None,
-                     "_when": days_ago(14).isoformat()})
+                     "_when": days_ago(16).isoformat()})
     img = Image.new("RGB", (800, 600), (70, 130, 180))
     ImageDraw.Draw(img).ellipse([300, 200, 500, 400], fill=(255, 220, 120))
     save_jpg(ROOT / d / "IMG_0012.jpg", img, days_ago(710))
@@ -806,9 +807,9 @@ def build_installers():
                    (["over-64MiB-quick-hash"] if mb > 64 else []))
         random_bytes(p, mb * 1024 * 1024, head)
     p = record("ubuntu-24.04.1-desktop-amd64.iso.crdownload", "Junk / Review", when=days_ago(2),
-               tags=["partial-download", "recent"])
+               tags=["partial-download"])
     random_bytes(p, 4 * 1024 * 1024)
-    p = record("video.mp4.part", "Junk / Review", when=days_ago(3), tags=["partial-download", "recent"])
+    p = record("video.mp4.part", "Junk / Review", when=days_ago(3), tags=["partial-download"])
     random_bytes(p, 1024 * 1024)
 
 
@@ -868,7 +869,7 @@ def build_sensitive():
                size=(900, 1100), fsize=38).save(p, "PNG")
 
     p = record("Screenshot 2026-09-20 at 4.02.11 PM.png", "Sensitive", when=days_ago(9), sensitive="secret",
-               tags=["screenshot", "recovery-codes", "needs-vision", "recent"], note="screenshot of 2FA backup codes")
+               tags=["screenshot", "recovery-codes", "needs-vision"], note="screenshot of 2FA backup codes")
     codes = [f"{RNG.randrange(10**7, 10**8)}" for _ in range(10)]
     text_image(["Save your backup codes", "Each code can be used once.", ""] +
                [f"{codes[i]}    {codes[i + 1]}" for i in range(0, 10, 2)],
@@ -926,7 +927,14 @@ def copy_real(src_dir: Path) -> list[str]:
 def finalize(manifest_path: Path) -> None:
     for m in MANIFEST:
         p = ROOT / m["path"]
-        ts = datetime.fromisoformat(m.pop("_when")).timestamp()
+        when = datetime.fromisoformat(m.pop("_when"))
+        # "recent" follows from the date, so the tag can't drift from what --older-than 14d skips.
+        # Generated dates stay a day clear of the cutoff so a test run soon after still agrees.
+        age = NOW - when
+        if m["origin"] == "generated" and abs(age - RECENT) < timedelta(days=1):
+            sys.exit(f"{m['path']} is dated too close to the {RECENT.days}-day cutoff")
+        m["tags"] = [t for t in m["tags"] if t != "recent"] + (["recent"] if age < RECENT else [])
+        ts = when.timestamp()
         if p.is_dir():
             for sub in p.rglob("*"):
                 os.utime(sub, (ts, ts))
