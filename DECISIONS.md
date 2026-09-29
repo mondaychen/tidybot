@@ -99,8 +99,8 @@ rest for a CLI that an agent drives. Open questions are collected at the end und
 
 9. **Content extraction:**
    - `unpdf` for PDF, and `jszip` plus light XML parsing for DOCX/PPTX/XLSX.
-   - `pdfjs-dist` (pinned to the pdf.js version unpdf bundles) only supplies CMaps and standard fonts. PDFs
-     in non-embedded CJK fonts extract as nothing without CMaps, and unpdf can't reliably find them itself.
+   - PDFs in non-embedded CJK fonts extract as nothing without pdf.js's CMaps, which unpdf doesn't bundle. The
+     build copies them (about 1.6 MB) from `pdfjs-dist`, a dev dependency pinned to unpdf's pdf.js version.
    - Excerpts are capped by `excerptChars` (default 1000).
    - Legacy `.doc/.xls/.ppt` are out of scope *(confirmed)*.
    - The extractor reports `complete: true` when the excerpt is the whole file, which drives the

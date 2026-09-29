@@ -172,9 +172,6 @@ importers:
       jszip:
         specifier: ^3.10.2
         version: 3.10.2
-      pdfjs-dist:
-        specifier: ~6.1.200
-        version: 6.1.200
       unpdf:
         specifier: ^1.8.1
         version: 1.8.1(@napi-rs/canvas@1.0.9)
@@ -188,6 +185,9 @@ importers:
       '@types/node':
         specifier: ^26.6.2
         version: 26.6.2
+      pdfjs-dist:
+        specifier: ~6.1.200
+        version: 6.1.200
       tsx:
         specifier: ^4.23.15
         version: 4.23.15

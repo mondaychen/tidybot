@@ -11,10 +11,11 @@
     "guides"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && node scripts/copy-cmaps.mjs",
     "dev": "tsx src/cli.ts",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:e2e": "vitest run --config test/e2e/vitest.config.ts"
   },
   "engines": {
     "node": ">=20"
@@ -24,13 +25,13 @@
   "dependencies": {
     "commander": "^15.0.0",
     "jszip": "^3.10.2",
-    "pdfjs-dist": "~6.1.200",
     "unpdf": "^1.8.1",
     "yaml": "^2.9.1",
     "zod": "^4.6.5"
   },
   "devDependencies": {
     "@types/node": "^26.6.2",
+    "pdfjs-dist": "~6.1.200",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vitest": "^5.0.2"

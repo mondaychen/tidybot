@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import JSZip from "jszip";
 import { sensitiveByContent, sensitiveByName } from "./sensitive.js";
 import type { Waivers } from "./store/allowlist.js";
@@ -156,19 +157,25 @@ async function extractOffice(buf: Buffer, ext: string, limit: number): Promise<{
   return { text: `Sheets: ${sheets.join(", ")}\n${strings}`, whole: false };
 }
 
-/** pdf.js data that unpdf doesn't bundle: CMaps for CJK fonts that aren't embedded (without them
- * such text extracts as nothing) and the standard fonts. unpdf only finds them in a pdfjs-dist
- * package it can resolve itself, which a pnpm or global install doesn't guarantee. Under Node,
- * pdf.js reads `<url><name>` with fs.readFile, so these are directory paths, not file: URLs. */
-function pdfjsData() {
-  const dir = path.dirname(createRequire(import.meta.url).resolve("pdfjs-dist/package.json"));
-  return { cMapUrl: path.join(dir, "cmaps") + path.sep, cMapPacked: true, standardFontDataUrl: path.join(dir, "standard_fonts") + path.sep };
+/** CMaps for CJK fonts that aren't embedded; without them such text extracts as nothing. unpdf
+ * doesn't bundle them. Builds copy them to dist/cmaps; in development they come from pdfjs-dist,
+ * a dev dependency. Under Node, pdf.js reads `<cMapUrl><name>` with fs.readFile, so this is a
+ * directory path, not a file: URL. */
+function cMapOptions(): { cMapUrl?: string; cMapPacked?: boolean } {
+  const bundled = fileURLToPath(new URL("cmaps/", import.meta.url));
+  if (fs.existsSync(bundled)) return { cMapUrl: bundled, cMapPacked: true };
+  try {
+    const dir = path.dirname(createRequire(import.meta.url).resolve("pdfjs-dist/package.json"));
+    return { cMapUrl: path.join(dir, "cmaps") + path.sep, cMapPacked: true };
+  } catch {
+    return {};
+  }
 }
 
 /** Text of the first MAX_PDF_PAGES pages, stopping early once `limit` characters are collected. */
 async function extractPdf(buf: Buffer, limit: number): Promise<{ text: string; whole: boolean }> {
   const { getDocumentProxy } = await import("unpdf");
-  const pdf = await getDocumentProxy(new Uint8Array(buf), pdfjsData());
+  const pdf = await getDocumentProxy(new Uint8Array(buf), cMapOptions());
   try {
     const pages: string[] = [];
     let len = 0;
