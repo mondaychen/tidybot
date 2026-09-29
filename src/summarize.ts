@@ -19,50 +19,53 @@ export async function saveSummaries(input: unknown, opts: { base: string; model?
   const existing = loadSummaries();
   const allowances = loadAllowances();
   const disabled = new Set(opts.allowRules ?? []);
-  const saved: Summary[] = [];
-  for (const s of parsed.data) {
-    let hash = s.hash;
-    let name = "";
-    let mime: string | null = null;
-    if (s.file) {
-      const file = resolvePath(s.file, opts.base);
-      if (!fs.existsSync(file)) throw new TidyError(`File not found: ${s.file}`, "not_found");
-      hash = await index.hashOf(file);
-      name = path.basename(file);
-      mime = mimeOf(file);
-    } else if (hash) {
-      const prev = existing.get(hash);
-      if (!prev && index.pathsFor(hash).length === 0) throw new TidyError(`Unknown hash ${hash}; pass \`file\` instead.`, "not_found");
-      const known = index.pathsFor(hash)[0];
-      name = prev?.name ?? (known ? path.basename(known) : "");
-      mime = prev?.mime ?? (known ? mimeOf(known) : null);
+  const records: Summary[] = [];
+  try {
+    for (const s of parsed.data) {
+      let hash = s.hash;
+      let name = "";
+      let mime: string | null = null;
+      if (s.file) {
+        const file = resolvePath(s.file, opts.base);
+        if (!fs.existsSync(file)) throw new TidyError(`File not found: ${s.file}`, "not_found");
+        hash = await index.hashOf(file);
+        name = path.basename(file);
+        mime = mimeOf(file);
+      } else if (hash) {
+        const prev = existing.get(hash);
+        if (!prev && index.pathsFor(hash).length === 0) throw new TidyError(`Unknown hash ${hash}; pass \`file\` instead.`, "not_found");
+        const known = index.pathsFor(hash)[0];
+        name = prev?.name ?? (known ? path.basename(known) : "");
+        mime = prev?.mime ?? (known ? mimeOf(known) : null);
+      }
+      // A file allowed with --content is known to be harmless text; otherwise vet for secret values.
+      const leak = allowances[hash as string]?.content
+        ? undefined
+        : sensitiveByContent([s.summary, ...s.keywords].join("\n"), { valuesOnly: true, disabled });
+      if (leak) {
+        throw new TidyError(
+          `Summary for ${s.file ?? s.hash} looks like it contains a secret (${leak.reason}, rule ${leak.rule}). Describe the file without copying credentials.`,
+          "sensitive",
+        );
+      }
+      records.push({
+        hash: hash as string,
+        summary: s.summary,
+        keywords: [...new Set(s.keywords.map((k) => k.toLowerCase()))],
+        name,
+        mime,
+        source: "agent",
+        model: s.model ?? opts.model,
+        at: new Date().toISOString(),
+      });
     }
-    // A file allowed with --content is known to be harmless text; otherwise vet for secret values.
-    const leak = allowances[hash as string]?.content
-      ? undefined
-      : sensitiveByContent([s.summary, ...s.keywords].join("\n"), { valuesOnly: true, disabled });
-    if (leak) {
-      throw new TidyError(
-        `Summary for ${s.file ?? s.hash} looks like it contains a secret (${leak.reason}, rule ${leak.rule}). Describe the file without copying credentials.`,
-        "sensitive",
-      );
-    }
-    const record: Summary = {
-      hash: hash as string,
-      summary: s.summary,
-      keywords: [...new Set(s.keywords.map((k) => k.toLowerCase()))],
-      name,
-      mime,
-      source: "agent",
-      model: s.model ?? opts.model,
-      at: new Date().toISOString(),
-    };
-    appendSummary(record);
-    saved.push(record);
+  } finally {
+    index.save(); // Hashes stay valid even if the batch is refused.
   }
-  index.save();
+  // All-or-nothing: nothing is saved if any summary was refused above.
+  for (const record of records) appendSummary(record);
   compactSummaries(loadConfig().summariesMax);
-  return saved;
+  return records;
 }
 
 /** Cached summaries for specific files (by path). Hashes files as needed. */

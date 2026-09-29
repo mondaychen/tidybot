@@ -5,8 +5,8 @@ import { createInterface } from "node:readline/promises";
 import { Command, Option } from "commander";
 import { TidyError } from "./errors.js";
 import { GUIDE_TOPICS, readGuide, type GuideTopic } from "./guide.js";
-import { type ConflictPolicy, applyPlan, forgetMove, selectMoves, undoMoves } from "./mover.js";
-import { emit, fail, isJsonMode, renderMoves, renderPlan, setJsonMode } from "./output.js";
+import { type ConflictPolicy, applyPlan, compactHistory, forgetMove, selectMoves, undoMoves } from "./mover.js";
+import { emit, fail, isJsonMode, renderMoves, renderPlan, setJsonMode, warn } from "./output.js";
 import { PROJECT_DIRNAME, contractHome, projectDir, resolvePath, setScopeOverride, tidybotHome } from "./paths.js";
 import { propose, retarget, skip } from "./planner.js";
 import { compactEntry, inspect, parseAge, scan } from "./scan.js";
@@ -23,8 +23,8 @@ import {
   unsetConfigValue,
 } from "./store/config.js";
 import { addFolder, foldersFile, importFolders, loadFolders, removeFolder, saveFolders, updateFolder } from "./store/folders.js";
-import { loadMoves, trimHistory } from "./store/history.js";
-import { recoverMoves } from "./store/operations.js";
+import { loadMoves } from "./store/history.js";
+import { abandonOperation, recoverMoves, recoverPendingMoves, withMoveLock } from "./store/operations.js";
 import { parseStructured, writeYaml } from "./store/io.js";
 import { listPlans, loadPlan, planState, savePlan } from "./store/plans.js";
 import { FileIndex, compactSummaries, findSummaries } from "./store/summaries.js";
@@ -65,11 +65,18 @@ const program = new Command("tidybot")
   .option("--json", "machine-readable JSON output (or set TIDYBOT_JSON=1)")
   .option("-g, --global", "ignore any per-project settings (.tidybot/) and use global ones")
   .option("--project <dir>", "use the per-project settings in <dir>/.tidybot")
-  .hook("preAction", (cmd) => {
+  .hook("preAction", (cmd, action) => {
     const o = cmd.optsWithGlobals();
     setJsonMode(!!o.json);
     setScopeOverride({ global: o.global, project: o.project });
-    recoverMoves();
+    if (action.name() === "recover") return;
+    try {
+      recoverMoves();
+    } catch (err) {
+      // Only moves need a clean slate; they check again and refuse to start.
+      if (!(err instanceof TidyError && err.code === "recovery_required")) throw err;
+      warn(err.message);
+    }
   })
   .showHelpAfterError();
 
@@ -553,6 +560,22 @@ program
   });
 
 program
+  .command("recover")
+  .description("finish or roll back moves that were interrupted (runs automatically before other commands)")
+  .option("--abandon <ids...>", "forget interrupted operations recovery can't resolve, after checking their files yourself (files are left as they are)")
+  .action((o) => {
+    if (o.abandon) {
+      const dropped = (o.abandon as string[]).map(abandonOperation);
+      emit({ ok: true, abandoned: dropped }, () =>
+        dropped.map((d) => `Abandoned ${d.id}: ${contractHome(d.from)} → ${contractHome(d.to)}${d.backup ? `\n  a copy may be held at ${contractHome(d.backup)}` : ""}`).join("\n"),
+      );
+      return;
+    }
+    const resolved = withMoveLock(recoverPendingMoves);
+    emit({ ok: true, resolved }, () => (resolved ? `Resolved ${resolved} interrupted operation(s).` : "Nothing to recover."));
+  });
+
+program
   .command("forget")
   .description("drop a history entry that can no longer be undone")
   .argument("<ids...>")
@@ -735,7 +758,7 @@ program
   .description("apply historyMaxMoves and summariesMax now, and drop superseded summary records")
   .action(() => {
     const c = loadConfig();
-    const moves = trimHistory(c.historyMaxMoves);
+    const moves = compactHistory(c.historyMaxMoves);
     const summaries = compactSummaries(c.summariesMax);
     emit({ ok: true, droppedMoves: moves, droppedSummaries: summaries }, () => `Dropped ${moves} move(s) and ${summaries} summary record(s).`);
   });

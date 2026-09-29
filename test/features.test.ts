@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { applyPlan, selectMoves, undoMoves } from "../src/mover.js";
 import { projectDir } from "../src/paths.js";
 import { propose, retarget, sanitizeName } from "../src/planner.js";
@@ -97,8 +97,8 @@ describe("per-project settings", () => {
     setConfigValue("maxFiles", "50");
     const proj = path.join(root, "proj");
     saveFolders([{ name: "Specs", path: path.join(proj, "specs"), rule: "" }], path.join(proj, ".tidybot/folders.yaml"));
-    process.env.TIDYBOT_NO_PROJECT = "";
-    process.env.TIDYBOT_PROJECT = proj;
+    vi.stubEnv("TIDYBOT_NO_PROJECT", "");
+    vi.stubEnv("TIDYBOT_PROJECT", proj);
     expect(projectDir()).toBe(path.join(proj, ".tidybot"));
     expect(loadFolders().map((f) => f.name)).toEqual(["Specs"]);
     addRule("project rule");
@@ -106,7 +106,7 @@ describe("per-project settings", () => {
     expect(loadConfig()).toMatchObject({ source: proj, maxFiles: 50, excerptChars: 300, rules: ["global rule", "project rule"] });
     expect(loadRules().map((s) => s.scope)).toEqual(["global", "project"]);
 
-    process.env.TIDYBOT_NO_PROJECT = "1";
+    vi.stubEnv("TIDYBOT_NO_PROJECT", "1");
     expect(loadConfig().excerptChars).toBe(1000);
     expect(loadFolders().map((f) => f.name)).toEqual(["Legal", "Photos"]);
   });

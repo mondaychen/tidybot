@@ -9,10 +9,6 @@ let root: string;
 let dl: string;
 
 beforeEach(() => {
-  // Track environment overrides so sandbox() changes are restored after each test.
-  vi.stubEnv("TIDYBOT_HOME", undefined);
-  vi.stubEnv("TIDYBOT_NO_PROJECT", undefined);
-  vi.stubEnv("TIDYBOT_PROJECT", undefined);
   root = sandbox();
   dl = path.join(root, "dl");
   fs.mkdirSync(dl);
@@ -20,8 +16,6 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
-  vi.unstubAllEnvs();
-  fs.rmSync(root, { recursive: true, force: true });
 });
 
 describe("large-file duplicates", () => {
@@ -67,6 +61,19 @@ describe("large-file duplicates", () => {
     expect(result.duplicates[0]?.files).toEqual(["same.bin"]);
     expect(result.duplicates[0]?.elsewhere).toEqual([filed]);
     expect(result.duplicates[0]?.hash).toMatch(/^sha256:/);
+  });
+
+  it("reads unchanged candidates in full only once across scans", async () => {
+    const a = largeFile("a.bin", "same");
+    const b = largeFile("b.bin", "same");
+    expect((await scan(dl, { maxFiles: 10, excerptChars: 100 })).duplicates).toHaveLength(1);
+    const streams = vi.spyOn(fs, "createReadStream");
+    expect((await scan(dl, { maxFiles: 10, excerptChars: 100 })).duplicates).toHaveLength(1);
+    expect(streams.mock.calls.filter(([file]) => file === a || file === b)).toEqual([]);
+
+    // An edit invalidates the cached verification.
+    fs.appendFileSync(b, "changed");
+    expect((await scan(dl, { maxFiles: 10, excerptChars: 100 })).duplicates).toEqual([]);
   });
 });
 

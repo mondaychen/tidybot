@@ -2,7 +2,6 @@ import fs from "node:fs";
 import path from "node:path";
 import { TidyError } from "./errors.js";
 import { extractExcerpt, mimeOf } from "./extract.js";
-import { fullHashFile } from "./hash.js";
 import { contractHome, isWithin, resolvePath } from "./paths.js";
 import type { SmartFolder } from "./store/folders.js";
 import { loadAllowances, waiversFor } from "./store/allowlist.js";
@@ -232,26 +231,24 @@ export async function findDuplicates(files: FileEntry[], index = new FileIndex()
       groups.push({ hash, size: group[0]?.size ?? 0, files: group.map((f) => f.rel), elsewhere: elsewhere.map(contractHome) });
       continue;
     }
-    // Sampling only identifies candidates. Verify every member, including
-    // indexed copies outside this scan, before suggesting identical duplicates.
+    // Sampling only identifies candidates. Verify every member, including indexed copies
+    // outside this scan, before suggesting identical duplicates. The index keeps verified
+    // hashes, so unchanged files are read in full only once.
+    const candidates = [...scanned, ...elsewhere];
+    const full = await mapLimit(candidates, 4, (file) => index.fullHashOf(file).catch(() => undefined));
     const verified = new Map<string, DuplicateGroup>();
-    for (const file of [...scanned, ...elsewhere]) {
-      try {
-        const before = await fs.promises.stat(file);
-        const fullHash = await fullHashFile(file);
-        const after = await fs.promises.stat(file);
-        if (before.size !== after.size || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs) continue;
-        const match = verified.get(fullHash) ?? { hash: fullHash, size: after.size, files: [], elsewhere: [] };
-        const entry = group.find((f) => f.path === file);
-        if (entry) match.files.push(entry.rel);
-        else match.elsewhere.push(contractHome(file));
-        verified.set(fullHash, match);
-      } catch {
-        // A vanished/unreadable candidate is not a verified duplicate.
-      }
-    }
+    candidates.forEach((file, i) => {
+      const fullHash = full[i];
+      if (!fullHash) return; // A vanished, unreadable or changing candidate is not a verified duplicate.
+      const match = verified.get(fullHash) ?? { hash: fullHash, size: group[0]?.size ?? 0, files: [], elsewhere: [] };
+      const entry = group.find((f) => f.path === file);
+      if (entry) match.files.push(entry.rel);
+      else match.elsewhere.push(contractHome(file));
+      verified.set(fullHash, match);
+    });
     groups.push(...[...verified.values()].filter((g) => g.files.length > 0 && g.files.length + g.elsewhere.length > 1));
   }
+  index.save();
   return groups.sort((a, b) => b.size - a.size);
 }
 

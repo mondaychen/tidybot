@@ -37,7 +37,9 @@ rest for a CLI that an agent drives. Open questions are collected at the end und
 
 2. **Propose-then-apply, with plans stored on disk.** A plan file lets the agent and the human work at
    different times and makes AI suggestions auditable. A per-operation recovery journal is persisted
-   before moving; the plan is saved after every file. Discarded plans cannot be applied or previewed.
+   before moving, and history is appended after every file. The index and plan are saved once per batch;
+   journals are retired only after that, so recovery replays an interrupted batch. Discarded plans cannot
+   be applied or previewed.
 
 3. **Confirmation gate on `apply`** *(confirmed)*. On a TTY it asks y/N. With no TTY, or with `--json`,
    it needs `--yes`. `tidybot guide` tells agents not to pass `--yes` without approval. For a hard block, deny
@@ -48,6 +50,12 @@ rest for a CLI that an agent drives. Open questions are collected at the end und
    to overwrite too. Destinations are created with exclusive hard links, so a concurrent writer cannot
    be overwritten between an existence check and a rename. Cross-device moves copy to a private staging
    file, preserve modification time, link it into place exclusively, then unlink the source.
+   - Filesystems without hard links (exFAT, FAT, some network shares, Linux `protected_hardlinks`) fall back
+     to rename after checking that the destination is free. Node has no no-replace rename, so another
+     writer could still be overwritten in the moment between the check and the rename.
+   - `utimes` can't set nanoseconds, so a cross-device copy's modification time can differ from the
+     original below the microsecond. The index carries a moved file's hash over when the source matched its
+     entry, and records the destination's actual timestamp.
 
 5. **Storage formats:**
    - YAML for files people edit: `config.yaml`, `folders.yaml`.
@@ -58,11 +66,19 @@ rest for a CLI that an agent drives. Open questions are collected at the end und
      most recently written summaries. Both default to 0 (unlimited). They're enforced after each write
      (apply, undo, forget, summary save, scan) and by `tidybot compact`. Superseded summary records are
      always dropped when summaries are written. Dropped moves can't be undone.
-   - Rewritten files use temp file + flush + rename. Moves, undo and recovery share a process lock.
-     Other stores still assume one writer; atomic replacement alone does not prevent lost updates.
+   - Rewritten files use temp file + flush + rename. Moves, undo, recovery, `forget` and `compact` share a
+     process lock, because they all write `history.jsonl`. Other stores still assume one writer; atomic
+     replacement alone does not prevent lost updates.
+   - Only `move-locks/<pid>-<uuid>.lock` files count as claims (not Finder's `.DS_Store`). A claim is
+     stale once its process has exited, or when its PID belongs to a process that started after the claim
+     was made (the PID was reused after a crash or reboot). The error names the lock file.
    - `operations/<id>.json` records each move/undo before removing its source. CLI startup reconciles
      interrupted operations, repairs an interrupted final history append, and updates history, plans
-     and the index. Recovery refuses ambiguous filesystem changes and retains the journal for inspection.
+     and the index. It skips journals while another process holds the lock, since they are in use.
+   - Recovery decides what the operation created by inode, or by size and mtime for files renamed on FAT,
+     which may renumber them. It refuses ambiguous filesystem changes and retains the journal. That only
+     blocks moves and undo; other commands print a warning. Once the user has checked the files,
+     `tidybot recover --abandon <id>` drops the journal without touching them.
 
 6. **Global state with optional per-project settings.** `tidybot init` creates `<dir>/.tidybot/`, which is
    found by walking up from cwd like git. The rules for combining them:
@@ -128,6 +144,7 @@ rest for a CLI that an agent drives. Open questions are collected at the end und
       so scanning a folder of videos stays fast. That could collide on large files that differ only in the
       middle; I accepted that for a cache. Duplicate candidates with sampled hashes are verified by
       streaming the entire file before being reported as identical, including indexed copies elsewhere.
+      The index caches that verified hash while size and mtime are unchanged, so each copy is read once.
     - **Index** (`index.json`): path → {hash, size, mtime}. Files aren't rehashed unless size or mtime
       change. It's updated on scan, summary save, apply and undo, which is how `find` knows where a file
       lives *now*. Files moved outside tidybot drop out of `find` until the next scan sees them;
@@ -139,7 +156,8 @@ rest for a CLI that an agent drives. Open questions are collected at the end und
       - Archives, video, audio and other non-text files: not flagged, since there's nothing for a model to read.
     - **Delegation**: `guide summarize` tells the agent to use subagents on a cheap/fast model or at low
       effort, with batches of about 5–10 files, and includes a subagent prompt. tidybot hashes files
-      itself; it doesn't trust hashes from the agent.
+      itself; it doesn't trust hashes from the agent. A batch is all-or-nothing: if any item is refused
+      (a missing file, a secret value), none of it is saved, so a corrected retry doesn't duplicate records.
     - **Search**: `find` does simple keyword scoring (keyword match 3, name 2, summary text 1). Fuzzy or
       semantic lookups are left to the agent via `summary list`.
 

@@ -30,6 +30,8 @@ I/O and caching, and the user reviews before anything moves. Output is plain tex
      and `tidybot plan skip <file>`.
 4. **Do not run `tidybot apply` until the user approves the plan.** When they do, run
    `tidybot apply --yes`. `tidybot undo --last` reverts the batch, original names included.
+   If tidybot reports an interrupted move it can't recover safely, show the user both paths. Run
+   `tidybot recover --abandon <id>` only once they confirm the files are where they want them.
 5. **Duplicates and sensitive files:** tidybot never deletes. Tell the user which copies they could delete
    (keep the one already filed), and suggest a password manager for `sensitive` files.
    - Harmless files flagged by a **filename** rule (`sensitiveRule: name.*`) you may allow yourself:

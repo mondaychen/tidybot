@@ -55,6 +55,7 @@ Requires Node 20+.
 | `plan list \| show \| set \| skip \| discard` | Review and edit. `plan set <file> [folder] [--path d] [--name n] [--keep-name]` |
 | `apply [plan] [--dry-run] [--yes] [--on-conflict rename]` | Runs moves and renames. Asks for confirmation |
 | `history`, `undo <ids> \| --plan \| --last`, `forget <ids>` | Move history and undo |
+| `recover [--abandon <ids>]` | Finishes or rolls back interrupted moves (also runs automatically). `--abandon` drops one it can't resolve, after you've checked its files |
 | `find <words...>` | Searches files by summary, keywords and name |
 | `folders list \| add \| edit \| rm` | Smart folders |
 | `rules`, `rules add \| rm`, `rules naming [style]` | General rules and naming style for the agent |
@@ -142,9 +143,11 @@ Commands run anywhere under that directory pick it up, the same way git finds it
 ```
 
 Moves and undo use exclusive destination creation to prevent overwrites, including races with
-other writers. Interrupted operations are reconciled at the next command: a completed move is
-recorded, or an incomplete move is rolled back. If files have changed and recovery is ambiguous,
-tidybot preserves them and reports the recovery journal's path. Discarded plans cannot be applied.
+other writers. On filesystems without hard links (exFAT, FAT, some network shares) they fall back to
+rename after checking that the destination is free. Interrupted operations are reconciled at the next
+command: a completed move is recorded, or an incomplete move is rolled back. If files have changed and
+recovery is ambiguous, tidybot preserves them and reports the recovery journal's path. Until you run
+`tidybot recover --abandon <id>`, only moves and undo are blocked. Discarded plans cannot be applied.
 
 ## Develop
 

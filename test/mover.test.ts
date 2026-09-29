@@ -6,7 +6,7 @@ import { propose } from "../src/planner.js";
 import { scan } from "../src/scan.js";
 import { addFolder } from "../src/store/folders.js";
 import { loadMoves } from "../src/store/history.js";
-import { FileIndex } from "../src/store/summaries.js";
+import { FileIndex, findSummaries } from "../src/store/summaries.js";
 import { getSummaries } from "../src/summarize.js";
 import { caseInsensitiveFs, sandbox, write } from "./helpers.js";
 
@@ -15,10 +15,6 @@ let dl: string;
 let docs: string;
 
 beforeEach(() => {
-  // Track environment overrides so sandbox() changes are restored after each test.
-  vi.stubEnv("TIDYBOT_HOME", undefined);
-  vi.stubEnv("TIDYBOT_NO_PROJECT", undefined);
-  vi.stubEnv("TIDYBOT_PROJECT", undefined);
   root = sandbox();
   dl = path.join(root, "dl");
   fs.mkdirSync(dl);
@@ -29,8 +25,6 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
-  vi.unstubAllEnvs();
-  fs.rmSync(root, { recursive: true, force: true });
 });
 
 describe("move safety", () => {
@@ -155,6 +149,12 @@ describe("filename handling", () => {
     const plan = propose([{ file: "3f2a.pdf", folder: "Docs", rename: "年度财务报告".repeat(30) }], { source: dl });
     const r = applyPlan(plan);
     expect(r.failed).toEqual([]);
+    expect(r.moved).toHaveLength(1);
+    const name = path.basename(r.moved[0]!.to);
+    expect(name.startsWith("年度财务报告")).toBe(true);
+    expect(name.endsWith(".pdf")).toBe(true);
+    expect(Buffer.byteLength(name)).toBeLessThanOrEqual(255);
+    expect(fs.readdirSync(docs)).toEqual([name]);
   });
 
   it.runIf(caseInsensitiveFs())("renames a file to a case-only variant and undoes it", () => {
@@ -165,5 +165,22 @@ describe("filename handling", () => {
     expect(fs.readdirSync(dl)).toEqual(["Report.pdf"]);
     undoMoves(selectMoves({ last: true }));
     expect(fs.readdirSync(dl)).toEqual(["report.pdf"]);
+  });
+});
+
+describe("cross-device moves", () => {
+  it("keep a summarized file findable at its new location", async () => {
+    const from = write(path.join(dl, "notes.txt"), "quarterly planning notes");
+    fs.utimesSync(from, 1790611498.797949, 1790611498.797949);
+    await scan(dl, { maxFiles: 10, excerptChars: 100 });
+    expect(findSummaries("quarterly", { limit: 5 })[0]?.paths).toEqual([from]);
+    const plan = propose([{ file: from, folder: "Docs" }], { source: dl });
+    const link = fs.linkSync;
+    vi.spyOn(fs, "linkSync").mockImplementation((source, destination) => {
+      if (source === from) throw Object.assign(new Error("cross device"), { code: "EXDEV" });
+      link(source, destination);
+    });
+    expect(applyPlan(plan).moved).toHaveLength(1);
+    expect(findSummaries("quarterly", { limit: 5 })[0]?.paths).toEqual([path.join(docs, "notes.txt")]);
   });
 });

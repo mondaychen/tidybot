@@ -1,6 +1,5 @@
-import fs from "node:fs";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { MAX_NAME_BYTES, nameBytes } from "../src/names.js";
 import { findItem, propose, sanitizeName } from "../src/planner.js";
 import { addFolder } from "../src/store/folders.js";
@@ -9,18 +8,11 @@ import { caseInsensitiveFs, sandbox, write } from "./helpers.js";
 let root: string;
 let dl: string;
 beforeEach(() => {
-  vi.stubEnv("TIDYBOT_HOME", undefined);
-  vi.stubEnv("TIDYBOT_NO_PROJECT", undefined);
-  vi.stubEnv("TIDYBOT_PROJECT", undefined);
   root = sandbox();
   dl = path.join(root, "dl");
   addFolder({ name: "Docs", path: path.join(root, "docs") });
 });
 
-afterEach(() => {
-  vi.unstubAllEnvs();
-  fs.rmSync(root, { recursive: true, force: true });
-});
 
 describe("filename limits", () => {
   it("counts bytes, not characters, and keeps the extension", () => {
@@ -51,6 +43,12 @@ describe("case-insensitive conflict warnings", () => {
       { source: dl },
     );
     expect(plan.items[1]?.warnings?.[0]).toMatch(/same target/);
+  });
+
+  it.runIf(caseInsensitiveFs())("records the file name as spelled on disk", () => {
+    write(path.join(dl, "report.pdf"), "x");
+    const plan = propose([{ file: "REPORT.pdf", folder: "Docs" }], { source: dl });
+    expect(plan.items[0]?.file).toBe(path.join(dl, "report.pdf"));
   });
 
   it.runIf(caseInsensitiveFs())("warns when an existing file differs only by case", () => {

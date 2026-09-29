@@ -16,6 +16,11 @@ export function emit(data: unknown, human: () => string): void {
   else process.stdout.write(`${human()}\n`);
 }
 
+/** A problem that doesn't stop the command. On stderr, so --json output stays parseable. */
+export function warn(message: string): void {
+  process.stderr.write(`warning: ${message}\n`);
+}
+
 export function fail(err: unknown): never {
   const known = err instanceof TidyError;
   const message = err instanceof Error ? err.message : String(err);

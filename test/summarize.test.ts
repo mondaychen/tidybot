@@ -12,10 +12,6 @@ let root: string;
 let dl: string;
 
 beforeEach(() => {
-  // Track environment overrides so sandbox() changes are restored after each test.
-  vi.stubEnv("TIDYBOT_HOME", undefined);
-  vi.stubEnv("TIDYBOT_NO_PROJECT", undefined);
-  vi.stubEnv("TIDYBOT_PROJECT", undefined);
   root = sandbox();
   dl = path.join(root, "dl");
   fs.mkdirSync(dl);
@@ -23,8 +19,6 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
-  vi.unstubAllEnvs();
-  fs.rmSync(root, { recursive: true, force: true });
 });
 
 describe("sensitive content after revocation", () => {
@@ -67,5 +61,20 @@ describe("summary validation", () => {
     await expect(saveSummaries([{ file: f, summary: "Google OAuth file, client_secret: GOCSPX-123456" }], { base: dl })).rejects.toThrow(/secret/);
     await saveSummaries([{ file: f, summary: "Google OAuth client credentials for the CLI project" }], { base: dl });
     expect(listSummaries()).toHaveLength(1);
+  });
+
+  it("saves nothing from a batch that is rejected", async () => {
+    const a = write(path.join(dl, "a.txt"), "alpha");
+    const b = write(path.join(dl, "b.txt"), "beta");
+    await expect(saveSummaries([
+      { file: a, summary: "Notes about the alpha project" },
+      { file: b, summary: "password: hunter2345" },
+    ], { base: dl })).rejects.toThrow(/secret/);
+    expect(listSummaries({ includeMissing: true })).toEqual([]);
+    await expect(saveSummaries([
+      { file: a, summary: "Notes about the alpha project" },
+      { file: "missing.txt", summary: "Gone" },
+    ], { base: dl })).rejects.toThrow(/not found/i);
+    expect(listSummaries({ includeMissing: true })).toEqual([]);
   });
 });

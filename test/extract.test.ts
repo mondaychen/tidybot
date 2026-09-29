@@ -8,15 +8,11 @@ import { pdf, sandbox, write, zip } from "./helpers.js";
 
 let root: string;
 beforeEach(() => {
-  vi.stubEnv("TIDYBOT_HOME", undefined);
-  vi.stubEnv("TIDYBOT_NO_PROJECT", undefined);
-  vi.stubEnv("TIDYBOT_PROJECT", undefined);
   root = sandbox();
 });
 
 afterEach(() => {
-  vi.unstubAllEnvs();
-  fs.rmSync(root, { recursive: true, force: true });
+  vi.restoreAllMocks();
 });
 
 describe("extractExcerpt", () => {
@@ -129,13 +125,39 @@ describe("bounded reads", () => {
 
   it("reads only the head of large text files", async () => {
     const f = write(path.join(root, "huge.log"), "line of log text\n".repeat(200_000)); // ~3.4 MB
+    const open = fs.promises.open;
+    let bytesRead = 0;
+    vi.spyOn(fs.promises, "open").mockImplementation(async (...args: Parameters<typeof open>) => {
+      const handle = await open(...args);
+      const read = handle.read.bind(handle) as (...a: unknown[]) => Promise<{ bytesRead: number }>;
+      handle.read = (async (...a: unknown[]) => {
+        const r = await read(...a);
+        bytesRead += r.bytesRead;
+        return r;
+      }) as typeof handle.read;
+      return handle;
+    });
+    const readFile = vi.spyOn(fs.promises, "readFile");
+    const readFileSync = vi.spyOn(fs, "readFileSync");
     const r = await extractExcerpt(f, 100);
     expect(r.excerpt.length).toBe(100);
     expect(r.complete).toBe(false);
+    expect(bytesRead).toBeGreaterThan(0);
+    expect(bytesRead).toBeLessThanOrEqual(64 * 1024);
+    expect(readFile).not.toHaveBeenCalled();
+    expect(readFileSync.mock.calls.filter(([file]) => file === f)).toEqual([]);
+  });
+
+  it("parses a short PDF completely", async () => {
+    const r = await extractExcerpt(write(path.join(root, "a.pdf"), pdf("Short notice")), 500);
+    expect(r).toMatchObject({ method: "pdf", complete: true });
   });
 
   it("limits PDF parsing to the first pages", async () => {
-    const r = await extractExcerpt(write(path.join(root, "a.pdf"), pdf("Short notice")), 500);
-    expect(r).toMatchObject({ method: "pdf", complete: true });
+    const pages = [1, 2, 3, 4, 5, 6, 7].map((n) => `Page ${n} marker`);
+    const r = await extractExcerpt(write(path.join(root, "long.pdf"), pdf(...pages)), 10_000);
+    expect(r).toMatchObject({ method: "pdf", complete: false });
+    expect(r.excerpt).toContain("Page 5 marker");
+    expect(r.excerpt).not.toContain("Page 6 marker");
   });
 });

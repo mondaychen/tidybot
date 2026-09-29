@@ -2,13 +2,19 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import JSZip from "jszip";
+import { onTestFinished, vi } from "vitest";
 
-/** Fresh sandbox with its own TIDYBOT_HOME. */
+/** Fresh sandbox with its own TIDYBOT_HOME. The environment and files are restored when
+ * the current test finishes, so callers need no cleanup of their own. */
 export function sandbox(): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "tidybot-test-"));
-  process.env.TIDYBOT_HOME = path.join(root, "home");
-  process.env.TIDYBOT_NO_PROJECT = "1";
-  delete process.env.TIDYBOT_PROJECT;
+  vi.stubEnv("TIDYBOT_HOME", path.join(root, "home"));
+  vi.stubEnv("TIDYBOT_NO_PROJECT", "1");
+  vi.stubEnv("TIDYBOT_PROJECT", undefined);
+  onTestFinished(() => {
+    vi.unstubAllEnvs();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
   return root;
 }
 
@@ -24,14 +30,20 @@ export async function zip(files: Record<string, string>): Promise<Buffer> {
   return z.generateAsync({ type: "nodebuffer" });
 }
 
-/** Minimal single-page PDF containing `text`, with a correct xref table. */
-export function pdf(text: string): Buffer {
-  const stream = `BT /F1 12 Tf 72 720 Td (${text}) Tj ET`;
+/** Minimal PDF with one page per argument, with a correct xref table. */
+export function pdf(...pages: string[]): Buffer {
+  const font = 3 + pages.length * 2;
+  const kids = pages.map((_, i) => `${3 + i * 2} 0 R`).join(" ");
   const objects = [
     "<< /Type /Catalog /Pages 2 0 R >>",
-    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
-    `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`,
+    `<< /Type /Pages /Kids [${kids}] /Count ${pages.length} >>`,
+    ...pages.flatMap((text, i) => {
+      const stream = `BT /F1 12 Tf 72 720 Td (${text}) Tj ET`;
+      return [
+        `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents ${4 + i * 2} 0 R /Resources << /Font << /F1 ${font} 0 R >> >> >>`,
+        `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`,
+      ];
+    }),
     "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
   ];
   let out = "%PDF-1.4\n";

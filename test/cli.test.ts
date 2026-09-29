@@ -3,9 +3,11 @@ import { fileURLToPath } from "node:url";
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { applyPlan } from "../src/mover.js";
 import { propose } from "../src/planner.js";
 import { addFolder } from "../src/store/folders.js";
 import { loadMoves } from "../src/store/history.js";
+import { withMoveLock } from "../src/store/operations.js";
 import { loadPlan, savePlan } from "../src/store/plans.js";
 import { sandbox, write } from "./helpers.js";
 
@@ -14,10 +16,6 @@ let dl: string;
 let docs: string;
 
 beforeEach(() => {
-  // Track environment overrides so sandbox() changes are restored after each test.
-  vi.stubEnv("TIDYBOT_HOME", undefined);
-  vi.stubEnv("TIDYBOT_NO_PROJECT", undefined);
-  vi.stubEnv("TIDYBOT_PROJECT", undefined);
   root = sandbox();
   dl = path.join(root, "dl");
   fs.mkdirSync(dl);
@@ -28,8 +26,6 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
-  vi.unstubAllEnvs();
-  fs.rmSync(root, { recursive: true, force: true });
 });
 
 describe("discarded plan lifecycle", () => {
@@ -51,5 +47,22 @@ describe("discarded plan lifecycle", () => {
     expect.soft(fs.existsSync(path.join(docs, "report.txt"))).toBe(false);
     expect.soft(loadMoves()).toEqual([]);
     expect(loadPlan(plan.id).items[0]?.status).toBe("pending");
+  });
+});
+
+describe("history rewrites", () => {
+  it.each(["compact", "forget"])("%s waits for a running move instead of racing its history append", (command) => {
+    const file = write(path.join(dl, "report.txt"), "original contents");
+    const { moved } = applyPlan(propose([{ file, folder: "Docs" }], { source: dl }));
+    const repo = fileURLToPath(new URL("../", import.meta.url));
+    const args = command === "forget" ? ["forget", moved[0]!.operationId] : ["compact"];
+    withMoveLock(() => {
+      const result = spawnSync(process.execPath, ["--import", "tsx", "src/cli.ts", "--json", ...args], {
+        cwd: repo, env: process.env, encoding: "utf8", timeout: 10_000,
+      });
+      expect(result.status).toBe(1);
+      expect(JSON.parse(result.stdout).error.code).toBe("busy");
+    });
+    expect(loadMoves()[0]?.state).toBe("active");
   });
 });

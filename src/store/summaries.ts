@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { z } from "zod";
-import { hashFile } from "../hash.js";
+import { fullHashFile, hashFile } from "../hash.js";
 import { tidybotHome } from "../paths.js";
 import { sensitiveByContent, sensitiveByName } from "../sensitive.js";
 import { loadAllowances } from "./allowlist.js";
@@ -85,6 +85,14 @@ interface IndexEntry {
   hash: string;
   size: number;
   mtimeMs: number;
+  /** sha256 of the whole file, once duplicate detection has verified a sampled `hash`. */
+  full?: string;
+}
+
+/** Size and modification time of a file at some moment. */
+interface Stamp {
+  size: number;
+  mtimeMs: number;
 }
 
 /**
@@ -121,16 +129,40 @@ export class FileIndex {
     }
   }
 
-  moved(from: string, to: string): void {
+  /** sha256 of the entire file, for files whose `hash` is sampled. Cached while unchanged. */
+  async fullHashOf(file: string): Promise<string> {
+    const before = await fs.promises.stat(file);
+    const e = this.entries[file];
+    const current = e && e.size === before.size && e.mtimeMs === before.mtimeMs ? e : undefined;
+    if (current?.full) return current.full;
+    const hash = await fullHashFile(file);
+    const after = await fs.promises.stat(file);
+    if (before.size !== after.size || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs) {
+      throw new Error(`${file} changed while it was being hashed`);
+    }
+    if (current) {
+      current.full = hash;
+      this.dirty = true;
+    }
+    return hash;
+  }
+
+  /**
+   * `source` is the file as it was moved, `destination` what the move put at `to`. A copy
+   * across devices can get a slightly different timestamp, so the new one is recorded.
+   */
+  moved(from: string, to: string, source: Stamp, destination: Stamp): void {
     const e = this.entries[from];
     if (!e && this.cachedHash(to)) return; // Idempotent journal replay.
     delete this.entries[from];
     delete this.entries[to];
     try {
       const st = fs.statSync(to);
-      // Never bless an old hash with a new timestamp. A changed (or unindexed)
-      // source must be hashed again at its new location.
-      if (e && e.size === st.size && e.mtimeMs === st.mtimeMs) this.entries[to] = e;
+      // Never bless an old hash with a new timestamp. A source changed since it was
+      // indexed, or a destination changed since the move, must be hashed again.
+      const indexed = e && e.size === source.size && e.mtimeMs === source.mtimeMs;
+      const unchanged = st.size === destination.size && st.mtimeMs === destination.mtimeMs;
+      if (indexed && unchanged) this.entries[to] = { ...e, size: st.size, mtimeMs: st.mtimeMs };
     } catch {
       /* destination vanished; drop the entry */
     }

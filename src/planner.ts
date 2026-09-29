@@ -3,6 +3,7 @@ import path from "node:path";
 import { z } from "zod";
 import { TidyError } from "./errors.js";
 import { mimeOf } from "./extract.js";
+import { onDiskPath } from "./file-move.js";
 import { fitName, pathKey, sameFile } from "./names.js";
 import { resolvePath } from "./paths.js";
 import { isImage } from "./scan.js";
@@ -60,7 +61,8 @@ interface ProposeContext {
 }
 
 function toItem(p: Proposal, ctx: ProposeContext): PlanItem {
-  const file = resolvePath(p.file, ctx.source);
+  // On case-insensitive filesystems, record the name as stored rather than as typed.
+  const file = onDiskPath(resolvePath(p.file, ctx.source));
   const item: PlanItem = { file, folder: p.folder, destination: null, reason: p.reason, confidence: p.confidence, status: "pending" };
   const invalid = (note: string): PlanItem => ({ ...item, status: "invalid", note });
 
