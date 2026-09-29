@@ -34,18 +34,37 @@ export async function zip(files: Record<string, string>): Promise<Buffer> {
 export function pdf(...pages: string[]): Buffer {
   const font = 3 + pages.length * 2;
   const kids = pages.map((_, i) => `${3 + i * 2} 0 R`).join(" ");
-  const objects = [
+  return pdfFile([
     "<< /Type /Catalog /Pages 2 0 R >>",
     `<< /Type /Pages /Kids [${kids}] /Count ${pages.length} >>`,
-    ...pages.flatMap((text, i) => {
-      const stream = `BT /F1 12 Tf 72 720 Td (${text}) Tj ET`;
-      return [
-        `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents ${4 + i * 2} 0 R /Resources << /Font << /F1 ${font} 0 R >> >> >>`,
-        `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`,
-      ];
-    }),
+    ...pages.flatMap((text, i) => page(4 + i * 2, font, `BT /F1 12 Tf 72 720 Td (${text}) Tj ET`)),
     "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+  ]);
+}
+
+/** One-page PDF in the non-embedded STSong-Light font, as Chinese PDFs often are. Reading it
+ * needs pdf.js's predefined CMaps (UniGB-UCS2-H). */
+export function chinesePdf(text: string): Buffer {
+  const utf16 = [...text].map((c) => (c.codePointAt(0) as number).toString(16).padStart(4, "0")).join("");
+  return pdfFile([
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    ...page(4, 5, `BT /F1 12 Tf 72 720 Td <${utf16}> Tj ET`),
+    "<< /Type /Font /Subtype /Type0 /BaseFont /STSong-Light /Encoding /UniGB-UCS2-H /DescendantFonts [6 0 R] >>",
+    "<< /Type /Font /Subtype /CIDFontType0 /BaseFont /STSong-Light /CIDSystemInfo << /Registry (Adobe) /Ordering (GB1) /Supplement 4 >> /FontDescriptor 7 0 R >>",
+    "<< /Type /FontDescriptor /FontName /STSong-Light /Flags 6 /FontBBox [0 -200 1000 900] /ItalicAngle 0 /Ascent 880 /Descent -120 /CapHeight 880 /StemV 93 >>",
+  ]);
+}
+
+/** A page object and its content stream (object `contents`), using font object `font` as /F1. */
+function page(contents: number, font: number, stream: string): string[] {
+  return [
+    `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents ${contents} 0 R /Resources << /Font << /F1 ${font} 0 R >> >> >>`,
+    `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`,
   ];
+}
+
+function pdfFile(objects: string[]): Buffer {
   let out = "%PDF-1.4\n";
   const offsets: number[] = [];
   objects.forEach((body, i) => {

@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { extractExcerpt } from "../src/extract.js";
 import { scan } from "../src/scan.js";
 import { loadSummaries } from "../src/store/summaries.js";
-import { pdf, sandbox, write, zip } from "./helpers.js";
+import { chinesePdf, pdf, sandbox, write, zip } from "./helpers.js";
 
 let root: string;
 beforeEach(() => {
@@ -151,6 +151,11 @@ describe("bounded reads", () => {
   it("parses a short PDF completely", async () => {
     const r = await extractExcerpt(write(path.join(root, "a.pdf"), pdf("Short notice")), 500);
     expect(r).toMatchObject({ method: "pdf", complete: true });
+  });
+
+  it("reads Chinese text in a PDF that uses a standard CJK font", async () => {
+    const r = await extractExcerpt(write(path.join(root, "letter.pdf"), chinesePdf("解释信 签证")), 500);
+    expect(r.excerpt.replace(/\s+/g, "")).toContain("解释信签证");
   });
 
   it("limits PDF parsing to the first pages", async () => {
