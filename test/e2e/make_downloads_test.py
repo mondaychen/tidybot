@@ -20,6 +20,7 @@ Optional: ffmpeg (video/audio), ssh-keygen (throwaway key).
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import io
 import json
@@ -247,6 +248,12 @@ def ffmpeg(args: list[str]) -> bool:
 def fake_token(prefix: str, n: int, alphabet=string.ascii_letters + string.digits) -> str:
     # Built at runtime so this script never contains a literal that secret scanners flag.
     return prefix + "".join(RNG.choice(alphabet) for _ in range(n))
+
+
+def fake_jwt(claims: dict) -> str:
+    """A JWT-shaped token (header.payload.signature), like a Kubernetes service-account token."""
+    part = lambda obj: base64.urlsafe_b64encode(json.dumps(obj, separators=(",", ":")).encode()).rstrip(b"=").decode()
+    return f"{part({'alg': 'RS256', 'typ': 'JWT'})}.{part(claims)}.{fake_token('', 86, string.ascii_letters + string.digits + '-_')}"
 
 
 # ---------------------------------------------------------------- people & constants
@@ -841,7 +848,8 @@ def build_sensitive():
 
     p = record("kubeconfig-staging.yaml", "Sensitive", when=days_ago(80), sensitive="secret", tags=["cluster-token"])
     write(p, "apiVersion: v1\nkind: Config\nclusters:\n- name: staging\n  cluster:\n    server: https://k8s.staging.example\n"
-             "users:\n- name: ci\n  user:\n    token: " + fake_token("eyJ", 120) + "\n")
+             "users:\n- name: ci\n  user:\n    token: "
+             + fake_jwt({"iss": "kubernetes/serviceaccount", "sub": "system:serviceaccount:ci:deployer"}) + "\n")
 
     p = record("1Password Emergency Kit - John Doe.pdf", "Sensitive", when=days_ago(1100), sensitive="secret",
                tags=["password-manager"])
