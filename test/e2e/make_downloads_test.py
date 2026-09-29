@@ -225,6 +225,28 @@ def random_bytes(path: Path, n: int, head: bytes = b"") -> None:
             f.write(block[:left]); left -= len(block)
 
 
+def sparse_disk(path: Path, size: int, middle: bytes = b"") -> None:
+    """A sparse disk image: random first and last MiB, zeros between (except `middle`).
+    Same size and ends give the same sampled tidybot hash; only `middle` tells copies apart."""
+    mib = 1024 * 1024
+    seed = hashlib.sha256(b"disk").digest()
+    block = b"".join(hashlib.sha256(seed + i.to_bytes(4, "big")).digest() for i in range(mib // 32))
+    with open(path, "wb") as f:
+        f.write(block)
+        if middle:
+            f.seek(size // 2); f.write(middle)
+        f.seek(size - mib); f.write(block[::-1])
+        f.truncate(size)
+
+
+def sha256_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        while chunk := f.read(1024 * 1024):
+            h.update(chunk)
+    return h.hexdigest()
+
+
 def copy(path: Path, other: Path) -> None:
     shutil.copyfile(other, path)
 
@@ -816,6 +838,16 @@ def build_installers():
         p = record(name, "Installers", when=days_ago(ago), tags=["installer", "reclaimable"] +
                    (["over-64MiB-quick-hash"] if mb > 64 else []))
         random_bytes(p, mb * 1024 * 1024, head)
+    # Over 64 MiB tidybot hashes only the ends, so these exercise its full-file verification:
+    # a true duplicate pair, and a copy that differs only in the middle (not a duplicate).
+    size = 70 * 1024 * 1024
+    tags = ["over-64MiB-quick-hash", "sparse"]
+    sparse_disk(record("dev-vm-disk.img", "Dev & Data", when=days_ago(95), tags=tags + ["duplicate"]), size)
+    sparse_disk(record("dev-vm-disk copy.img", "Dev & Data", when=days_ago(94), tags=tags + ["duplicate"]), size)
+    MANIFEST[-1]["duplicate_of"] = "dev-vm-disk.img"
+    sparse_disk(record("dev-vm-disk-snapshot.img", "Dev & Data", when=days_ago(93),
+                       tags=tags + ["same-sampled-hash-not-duplicate"], note="differs from dev-vm-disk.img mid-file"),
+                size, middle=b"snapshot")
     p = record("ubuntu-24.04.1-desktop-amd64.iso.crdownload", "Junk / Review", when=days_ago(2),
                tags=["partial-download"])
     random_bytes(p, 4 * 1024 * 1024)
@@ -953,7 +985,7 @@ def finalize(manifest_path: Path) -> None:
             os.utime(p, (ts, ts))
             if p.is_file():
                 m["size"] = p.stat().st_size
-                m["sha256"] = hashlib.sha256(p.read_bytes()).hexdigest()
+                m["sha256"] = sha256_file(p)
         m["modified"] = datetime.fromtimestamp(ts).isoformat(timespec="seconds")
         m.setdefault("duplicate_of", None)
 
