@@ -48,7 +48,8 @@ from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 from reportlab.pdfgen import canvas
 
 MARKER = ".tidybot-fixture"  # hidden: tidybot skips dotfiles; guards --force
-RNG = random.Random(20260929)  # deterministic content
+RNG = random.Random(20260929)  # repeatable names and values; dates are relative to NOW, and
+                               # Office files embed their creation time, so hashes differ per run
 NOW = datetime.now()
 RECENT = timedelta(days=14)  # matches `tidybot scan --older-than 14d`
 MANIFEST: list[dict] = []
