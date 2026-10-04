@@ -1,5 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
+import pMap from "p-map";
+import picomatch from "picomatch";
 import { TidyError } from "./errors.js";
 import { extractExcerpt, mimeOf } from "./extract.js";
 import { contractHome, isWithin, resolvePath } from "./paths.js";
@@ -39,7 +41,7 @@ export interface ListOptions {
   maxFiles: number;
   /** Skip this many matching files first (paging through big directories). */
   offset?: number;
-  /** Only files whose name matches this glob-ish pattern (supports * and ?). */
+  /** Only files whose name matches this glob, e.g. `*.pdf` or `*.{jpg,png}` (case-insensitive). */
   match?: string;
   /** Don't descend into these smart folders (already organized). */
   skipFolders?: SmartFolder[];
@@ -56,11 +58,6 @@ export interface ScanOptions extends ListOptions {
 }
 
 const SKIP_DIRS = new Set(["node_modules", ".git"]);
-
-function globToRegex(glob: string): RegExp {
-  const escaped = glob.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".");
-  return new RegExp(`^${escaped}$`, "i");
-}
 
 export function assertDir(dir: string): void {
   if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) {
@@ -89,7 +86,7 @@ function makeEntry(full: string, rel: string, st: fs.Stats): FileEntry {
     rel,
     name,
     ext: path.extname(name).toLowerCase(),
-    mime: mimeOf(name),
+    mime: mimeOf(full),
     size: st.size,
     modified: st.mtime.toISOString(),
   };
@@ -97,7 +94,7 @@ function makeEntry(full: string, rel: string, st: fs.Stats): FileEntry {
 
 export function listFiles(dir: string, opts: ListOptions) {
   assertDir(dir);
-  const matcher = opts.match ? globToRegex(opts.match) : undefined;
+  const matcher = opts.match ? picomatch(opts.match, { nocase: true, dot: true }) : undefined;
   // A smart folder that contains the scan root was asked for explicitly; only skip ones below it.
   const skip = (opts.skipFolders ?? [])
     .map((f) => ({ name: f.name, abs: resolvePath(f.path) }))
@@ -120,7 +117,7 @@ export function listFiles(dir: string, opts: ListOptions) {
         else walk(full);
         continue;
       }
-      if (!e.isFile() || (matcher && !matcher.test(e.name))) continue;
+      if (!e.isFile() || (matcher && !matcher(e.name))) continue;
       const st = fs.statSync(full);
       if (opts.before !== undefined && recency(st) > opts.before) {
         skippedRecent++;
@@ -145,19 +142,6 @@ export function listFiles(dir: string, opts: ListOptions) {
   };
 }
 
-async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
-  const out = new Array<R>(items.length);
-  let next = 0;
-  const worker = async () => {
-    while (next < items.length) {
-      const i = next++;
-      out[i] = await fn(items[i] as T);
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-  return out;
-}
-
 export const isImage = (mime: string | null) => !!mime?.startsWith("image/");
 
 /** Fill in excerpt, sensitivity, hash and summary state for each entry (in place). */
@@ -166,12 +150,12 @@ export async function enrich(
   opts: Pick<ScanOptions, "excerptChars" | "noHash"> & { allowRules?: string[] },
 ): Promise<void> {
   const index = opts.noHash ? undefined : new FileIndex();
-  const summaries = opts.noHash ? new Map() : loadSummaries();
+  const summaries = opts.noHash ? new Map() : await loadSummaries();
   const allowances = loadAllowances();
   const disabled = new Set(opts.allowRules ?? []);
   let cachedNew = false;
   // Bounded reads keep memory flat, but PDF/Office parsing still buffers up to MAX_DOC_BYTES each.
-  await mapLimit(files, 4, async (f) => {
+  await pMap(files, async (f) => {
     // Hash first: per-file allowances are keyed by content hash.
     if (index) f.hash = await index.hashOf(f.path);
     const r = await extractExcerpt(f.path, opts.excerptChars, waiversFor(f.hash, allowances, disabled));
@@ -204,7 +188,7 @@ export async function enrich(
       // A document that parsed but has no text, such as a scanned PDF: only viewing it tells what it is.
       f.needsSummary = "recommended";
     }
-  });
+  }, { concurrency: 4 });
   index?.save();
   if (cachedNew) compactSummaries(loadConfig().summariesMax);
 }
@@ -238,7 +222,7 @@ export async function findDuplicates(files: FileEntry[], index = new FileIndex()
     // outside this scan, before suggesting identical duplicates. The index keeps verified
     // hashes, so unchanged files are read in full only once.
     const candidates = [...scanned, ...elsewhere];
-    const full = await mapLimit(candidates, 4, (file) => index.fullHashOf(file).catch(() => undefined));
+    const full = await pMap(candidates, (file) => index.fullHashOf(file).catch(() => undefined), { concurrency: 4 });
     const verified = new Map<string, DuplicateGroup>();
     candidates.forEach((file, i) => {
       const fullHash = full[i];

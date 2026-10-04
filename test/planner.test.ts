@@ -32,10 +32,10 @@ describe("filename limits", () => {
 });
 
 describe("case-insensitive conflict warnings", () => {
-  it("warns when two targets differ only by case", () => {
+  it("warns when two targets differ only by case", async () => {
     write(path.join(dl, "a/X.pdf"), "1");
     write(path.join(dl, "b/x.pdf"), "2");
-    const plan = propose(
+    const plan = await propose(
       [
         { file: "a/X.pdf", folder: "Docs" },
         { file: "b/x.pdf", folder: "Docs" },
@@ -45,25 +45,25 @@ describe("case-insensitive conflict warnings", () => {
     expect(plan.items[1]?.warnings?.[0]).toMatch(/same target/);
   });
 
-  it.runIf(caseInsensitiveFs())("records the file name as spelled on disk", () => {
+  it.runIf(caseInsensitiveFs())("records the file name as spelled on disk", async () => {
     write(path.join(dl, "report.pdf"), "x");
-    const plan = propose([{ file: "REPORT.pdf", folder: "Docs" }], { source: dl });
+    const plan = await propose([{ file: "REPORT.pdf", folder: "Docs" }], { source: dl });
     expect(plan.items[0]?.file).toBe(path.join(dl, "report.pdf"));
   });
 
-  it.runIf(caseInsensitiveFs())("warns when an existing file differs only by case", () => {
+  it.runIf(caseInsensitiveFs())("warns when an existing file differs only by case", async () => {
     write(path.join(root, "docs/NOTES.txt"), "existing");
     write(path.join(dl, "notes.txt"), "new");
-    const plan = propose([{ file: "notes.txt", folder: "Docs" }], { source: dl });
+    const plan = await propose([{ file: "notes.txt", folder: "Docs" }], { source: dl });
     expect(plan.items[0]?.warnings?.[0]).toMatch(/already exists/);
   });
 });
 
 describe("plan details", () => {
-  it("refuses ambiguous short file references", () => {
+  it("refuses ambiguous short file references", async () => {
     write(path.join(dl, "a/x.txt"), "1");
     write(path.join(dl, "b/x.txt"), "2");
-    const plan = propose(
+    const plan = await propose(
       [
         { file: "a/x.txt", folder: "Docs", rename: "one" },
         { file: "b/x.txt", folder: "Docs", rename: "two" },
@@ -74,9 +74,9 @@ describe("plan details", () => {
     expect(findItem(plan, "b/x.txt").newName).toBe("two.txt");
   });
 
-  it("records the rules and folders in effect", () => {
+  it("records the rules and folders in effect", async () => {
     write(path.join(dl, "a.txt"), "1");
-    const plan = propose([{ file: "a.txt", folder: "Docs" }], { source: dl });
+    const plan = await propose([{ file: "a.txt", folder: "Docs" }], { source: dl });
     expect(plan.context).toMatchObject({ rename: "auto", rules: [], folders: [{ name: "Docs" }] });
   });
 });

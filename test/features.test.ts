@@ -30,9 +30,9 @@ describe("smart rename", () => {
     expect(() => sanitizeName("../evil", "/x/a.txt")).toThrow(/path separators/);
   });
 
-  it("moves with a new name and undo restores the original name", () => {
+  it("moves with a new name and undo restores the original name", async () => {
     write(path.join(dl, "3f2a9c1e.pdf"), "x");
-    const plan = propose([{ file: "3f2a9c1e.pdf", folder: "Legal", rename: "2023-05-01 I-485 receipt notice" }], { source: dl });
+    const plan = await propose([{ file: "3f2a9c1e.pdf", folder: "Legal", rename: "2023-05-01 I-485 receipt notice" }], { source: dl });
     expect(plan.items[0]?.newName).toBe("2023-05-01 I-485 receipt notice.pdf");
     applyPlan(plan);
     expect(fs.existsSync(path.join(root, "docs/legal/2023-05-01 I-485 receipt notice.pdf"))).toBe(true);
@@ -40,20 +40,20 @@ describe("smart rename", () => {
     expect(fs.existsSync(path.join(dl, "3f2a9c1e.pdf"))).toBe(true);
   });
 
-  it("renames in place when folder is null", () => {
+  it("renames in place when folder is null", async () => {
     write(path.join(dl, "scan0001.txt"), "x");
-    const plan = propose([{ file: "scan0001.txt", folder: null, rename: "lease" }], { source: dl });
+    const plan = await propose([{ file: "scan0001.txt", folder: null, rename: "lease" }], { source: dl });
     expect(plan.items[0]?.status).toBe("pending");
     applyPlan(plan);
     expect(fs.existsSync(path.join(dl, "lease.txt"))).toBe(true);
   });
 
-  it("warns about conflicts at propose time so the agent can rename", () => {
+  it("warns about conflicts at propose time so the agent can rename", async () => {
     write(path.join(root, "docs/legal/notice.txt"), "existing");
     write(path.join(dl, "notice.txt"), "new");
     write(path.join(dl, "a/x.txt"), "1");
     write(path.join(dl, "b/x.txt"), "2");
-    const plan = propose(
+    const plan = await propose(
       [
         { file: "notice.txt", folder: "Legal" },
         { file: "a/x.txt", folder: "Legal" },
@@ -68,10 +68,10 @@ describe("smart rename", () => {
     expect(fixed.destination).toBe(path.join(root, "docs/legal"));
   });
 
-  it("ignores renames when rename mode is off", () => {
+  it("ignores renames when rename mode is off", async () => {
     setConfigValue("rename", "off");
     write(path.join(dl, "a.txt"), "x");
-    const plan = propose([{ file: "a.txt", folder: "Legal", rename: "b" }], { source: dl });
+    const plan = await propose([{ file: "a.txt", folder: "Legal", rename: "b" }], { source: dl });
     expect(plan.items[0]?.newName).toBeUndefined();
     expect(plan.items[0]?.warnings?.[0]).toMatch(/rename ignored/);
   });
@@ -141,31 +141,46 @@ describe("summaries", () => {
     expect(by["IMG_1234.jpg"]?.needsSummary).toBe("required");
     expect(by["long.txt"]?.needsSummary).toBe("recommended");
     expect(by["short.txt"]).toMatchObject({ complete: true, excerpt: "Rent receipt March" });
-    expect(findSummaries("rent", { limit: 5 })[0]?.name).toBe("short.txt");
+    expect((await findSummaries("rent", { limit: 5 }))[0]?.name).toBe("short.txt");
     expect(by["short.txt"]?.needsSummary).toBeUndefined();
   });
 
   it("requires image summaries before proposing, then caches by hash across moves", async () => {
     const img = write(path.join(dl, "IMG_1234.jpg"), Buffer.from([0xff, 0xd8, 1, 2]));
     await scan(dl, { maxFiles: 10, excerptChars: 100 });
-    const blocked = propose([{ file: "IMG_1234.jpg", folder: "Photos" }], { source: dl });
+    const blocked = await propose([{ file: "IMG_1234.jpg", folder: "Photos" }], { source: dl });
     expect(blocked.items[0]).toMatchObject({ status: "invalid" });
     expect(blocked.items[0]?.note).toMatch(/summary/);
 
     await saveSummaries([{ file: img, summary: "Photo of a Costco receipt dated 2026-03-02", keywords: ["Receipt", "costco"] }], { base: dl, model: "haiku" });
-    const plan = propose([{ file: "IMG_1234.jpg", folder: "Photos", rename: "2026-03-02 costco receipt" }], { source: dl });
+    const plan = await propose([{ file: "IMG_1234.jpg", folder: "Photos", rename: "2026-03-02 costco receipt" }], { source: dl });
     expect(plan.items[0]?.status).toBe("pending");
     applyPlan(plan);
 
-    const hits = findSummaries("costco receipt", { limit: 5 });
+    const hits = await findSummaries("costco receipt", { limit: 5 });
     expect(hits[0]?.paths).toEqual([path.join(root, "docs/photos/2026-03-02 costco receipt.jpg")]);
     expect(hits[0]?.keywords).toEqual(["receipt", "costco"]);
-    expect(listSummaries()[0]?.model).toBe("haiku");
+    expect((await listSummaries())[0]?.model).toBe("haiku");
 
     // same bytes elsewhere → same summary
     const copy = write(path.join(root, "elsewhere/copy.jpg"), Buffer.from([0xff, 0xd8, 1, 2]));
     const [got] = await getSummaries([copy], root);
     expect(got?.summary?.summary).toMatch(/Costco/);
+  });
+
+  it("finds by word prefix, ranks keywords first, and segments Chinese", async () => {
+    const a = write(path.join(dl, "a.pdf"), "a");
+    const b = write(path.join(dl, "b.pdf"), "b");
+    const c = write(path.join(dl, "c.pdf"), "c");
+    await saveSummaries([
+      { file: a, summary: "Mentions an invoice in passing", keywords: ["travel"] },
+      { file: b, summary: "Hotel booking", keywords: ["invoice"] },
+      { file: c, summary: "公司2025年度财务报告，包括收入和支出", keywords: [] },
+    ], { base: dl });
+    expect((await findSummaries("invoice", { limit: 5 })).map((h) => h.name)).toEqual(["b.pdf", "a.pdf"]);
+    expect((await findSummaries("invo", { limit: 5 })).map((h) => h.name)).toEqual(["b.pdf", "a.pdf"]);
+    expect((await findSummaries("财务", { limit: 5 })).map((h) => h.name)).toEqual(["c.pdf"]);
+    expect(await findSummaries("unrelated", { limit: 5 })).toEqual([]);
   });
 
   it("validates summary input", async () => {

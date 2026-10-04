@@ -1,4 +1,6 @@
 import path from "node:path";
+import { lintSource } from "@secretlint/core";
+import { rules as recommended } from "@secretlint/secretlint-rule-preset-recommend";
 
 /**
  * Heuristics for files that likely hold credentials. Sensitive files get no excerpt, no cached
@@ -7,13 +9,16 @@ import path from "node:path";
  * Each rule has a stable id so it can be allowlisted (see store/allowlist.ts).
  */
 
-export interface Rule {
+export interface RuleInfo {
   id: string;
   /** name: matched against the filename (file isn't opened); content: against extracted text. */
   kind: "name" | "content";
   reason: string;
   /** Matches actual secret values (vs. names or mentions). Used to vet agent-written summaries. */
   value?: boolean;
+}
+
+interface Rule extends RuleInfo {
   test: (s: string) => boolean;
 }
 
@@ -35,7 +40,7 @@ const SENSITIVE_EXT = new Set([".pem", ".key", ".p12", ".pfx", ".kdbx", ".keysto
 /** Lines that look like one-time recovery codes: "abcd-efgh", "1234 5678", "a1b2c3d4e5". */
 const CODE_LINE = /^\s*(\d+[.)]\s*)?[A-Za-z0-9]{4,6}[- ]?[A-Za-z0-9]{4,6}([- ][A-Za-z0-9]{4,6})?\s*$/;
 
-export const RULES: Rule[] = [
+const PATTERNS: Rule[] = [
   // ---- filename rules (checked first; the file isn't opened when one matches)
   { id: "name.extension", kind: "name", reason: "key/credential file type", test: (n) => SENSITIVE_EXT.has(path.extname(n).toLowerCase()) },
   re("name.recovery-codes", "name", /recovery[-_ ]?(codes?|key)/i, "recovery codes"),
@@ -79,19 +84,45 @@ export const RULES: Rule[] = [
   re("content.mentions", "content", /recovery codes?|backup codes?|emergency kit|seed phrase/i, "mentions recovery material"),
 ];
 
+/** secretlint's maintained recommended rules (cloud, SaaS and database credentials), checked after
+ * the patterns above. They run as one rule id, so they are allowlisted together. */
+const SECRETLINT: RuleInfo = { id: "content.secretlint", kind: "content", reason: "secret value", value: true };
+
+/** Every rule, in the order they are checked. */
+export const RULES: readonly RuleInfo[] = [...PATTERNS, SECRETLINT];
+
 export const RULE_IDS = new Set(RULES.map((r) => r.id));
+
+const SECRETLINT_PREFIX = "@secretlint/secretlint-rule-";
+/** Without filter-comments, a `secretlint-disable` comment in a file can't switch detection off. */
+const SECRETLINT_CONFIG = {
+  rules: recommended.filter((r) => r.meta.id !== `${SECRETLINT_PREFIX}filter-comments`).map((r) => ({ id: r.meta.id, rule: r })),
+};
+
+/** The secretlint rule that matched, e.g. "github". Its message is not used: it quotes the secret. */
+async function secretlint(text: string): Promise<string | undefined> {
+  const { messages } = await lintSource({
+    // With a .txt name, rules that read the file from disk (GCP's .p12 check) never run.
+    source: { filePath: "excerpt.txt", content: text, contentType: "text" },
+    options: { config: SECRETLINT_CONFIG },
+  });
+  return messages[0]?.ruleId.replace(SECRETLINT_PREFIX, "");
+}
 
 const hit = (r: Rule | undefined): SensitiveHit | undefined => (r ? { rule: r.id, reason: r.reason } : undefined);
 
 export function sensitiveByName(file: string, disabled: ReadonlySet<string> = new Set()): SensitiveHit | undefined {
   const name = path.basename(file);
-  return hit(RULES.find((r) => r.kind === "name" && !disabled.has(r.id) && r.test(name)));
+  return hit(PATTERNS.find((r) => r.kind === "name" && !disabled.has(r.id) && r.test(name)));
 }
 
 /** `valuesOnly`: only rules that match actual secret values (used to vet agent-written summaries). */
-export function sensitiveByContent(
+export async function sensitiveByContent(
   text: string,
   opts: { valuesOnly?: boolean; disabled?: ReadonlySet<string> } = {},
-): SensitiveHit | undefined {
-  return hit(RULES.find((r) => r.kind === "content" && (!opts.valuesOnly || r.value) && !opts.disabled?.has(r.id) && r.test(text)));
+): Promise<SensitiveHit | undefined> {
+  const found = hit(PATTERNS.find((r) => r.kind === "content" && (!opts.valuesOnly || r.value) && !opts.disabled?.has(r.id) && r.test(text)));
+  if (found || opts.disabled?.has(SECRETLINT.id)) return found;
+  const rule = await secretlint(text);
+  return rule ? { rule: SECRETLINT.id, reason: `${SECRETLINT.reason} (${rule})` } : undefined;
 }

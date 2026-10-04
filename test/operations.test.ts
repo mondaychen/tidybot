@@ -19,12 +19,12 @@ let from: string;
 let to: string;
 let plan: Plan;
 
-beforeEach(() => {
+beforeEach(async () => {
   root = sandbox();
   from = write(path.join(root, "dl", "report.txt"), "original contents");
   to = path.join(root, "docs", "report.txt");
   addFolder({ name: "Docs", path: path.dirname(to) });
-  plan = propose([{ file: from, folder: "Docs" }], { source: path.dirname(from) });
+  plan = await propose([{ file: from, folder: "Docs" }], { source: path.dirname(from) });
 });
 
 afterEach(() => {
@@ -112,7 +112,7 @@ describe("move journal recovery", () => {
     recoverMoves();
     recoverMoves();
     expect(loadMoves()).toHaveLength(1);
-    expect(findSummaries("original", { limit: 10 })[0]?.paths).toEqual([to]);
+    expect((await findSummaries("original", { limit: 10 }))[0]?.paths).toEqual([to]);
     expect(fs.readdirSync(path.join(root, "home", "operations"))).toEqual([]);
   });
 
@@ -210,9 +210,9 @@ describe("existing files at the destination", () => {
 });
 
 describe("file names spelled differently from the disk", () => {
-  it.runIf(caseInsensitiveFs())("fails a conflicting move cleanly", () => {
+  it.runIf(caseInsensitiveFs())("fails a conflicting move cleanly", async () => {
     write(path.join(root, "docs", "REPORT.txt"), "someone else's report");
-    const p = propose([{ file: "REPORT.txt", folder: "Docs" }], { source: path.dirname(from) });
+    const p = await propose([{ file: "REPORT.txt", folder: "Docs" }], { source: path.dirname(from) });
     const result = applyPlan(p);
     expect(result.failed[0]?.error).toMatch(/already exists/);
     expect(journals()).toEqual([]);
@@ -325,19 +325,19 @@ describe("batch metadata", () => {
   it("replays a batch interrupted before its metadata was saved", async () => {
     const second = write(path.join(root, "dl", "second.txt"), "second file");
     await scan(path.dirname(from), { maxFiles: 10, excerptChars: 100 });
-    plan = propose([{ file: from, folder: "Docs" }, { file: second, folder: "Docs" }], { source: path.dirname(from) });
+    plan = await propose([{ file: from, folder: "Docs" }, { file: second, folder: "Docs" }], { source: path.dirname(from) });
     interrupt("before-metadata");
     expect(journals()).toHaveLength(2);
     recoverMoves();
     expect(loadMoves()).toHaveLength(2);
     expect(loadPlan(plan.id).items.map((i) => i.status)).toEqual(["moved", "moved"]);
-    expect(findSummaries("second", { limit: 5 })[0]?.paths).toEqual([path.join(root, "docs", "second.txt")]);
+    expect((await findSummaries("second", { limit: 5 }))[0]?.paths).toEqual([path.join(root, "docs", "second.txt")]);
     expect(journals()).toEqual([]);
   });
 
-  it("writes the index and plan once per apply, and reads history once", () => {
+  it("writes the index and plan once per apply, and reads history once", async () => {
     const files = [1, 2, 3, 4, 5].map((n) => write(path.join(root, "dl", `f${n}.txt`), `file ${n}`));
-    const p = propose(files.map((file) => ({ file, folder: "Docs" })), { source: path.dirname(from) });
+    const p = await propose(files.map((file) => ({ file, folder: "Docs" })), { source: path.dirname(from) });
     const rename = fs.renameSync;
     const written: string[] = [];
     vi.spyOn(fs, "renameSync").mockImplementation((source, destination) => {

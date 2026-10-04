@@ -64,7 +64,7 @@ describe("duplicates", () => {
     write(path.join(dl, "empty2"), "");
     // scan + file report.txt once, then a second copy shows up in Downloads
     await scan(dl, { maxFiles: 50, excerptChars: 100 });
-    applyPlan(propose([{ file: "report.txt", folder: "Docs" }], { source: dl }));
+    applyPlan(await propose([{ file: "report.txt", folder: "Docs" }], { source: dl }));
     write(path.join(dl, "report copy.txt"), "filed copy");
 
     const r = await scan(dl, { maxFiles: 50, excerptChars: 100 });
@@ -99,7 +99,7 @@ describe("image summary skip", () => {
     write(path.join(dl, "Passport Photo IMG 1360.JPG"), Buffer.from([0xff, 0xd8, 9]));
     write(path.join(dl, "IMG_2001.jpg"), Buffer.from([0xff, 0xd8, 8]));
     await scan(dl, { maxFiles: 10, excerptChars: 100 });
-    const plan = propose(
+    const plan = await propose(
       [
         { file: "Passport Photo IMG 1360.JPG", folder: "Photos", summarySkipped: "name says passport photo" },
         { file: "IMG_2001.jpg", folder: "Photos" },
@@ -109,6 +109,6 @@ describe("image summary skip", () => {
     expect(plan.items[0]).toMatchObject({ status: "pending", summarySkipped: "name says passport photo" });
     expect(plan.items[1]?.status).toBe("invalid");
     await saveSummaries([{ file: path.join(dl, "IMG_2001.jpg"), summary: "Beach sunset" }], { base: dl });
-    expect(propose([{ file: "IMG_2001.jpg", folder: "Photos" }], { source: dl }).items[0]?.status).toBe("pending");
+    expect((await propose([{ file: "IMG_2001.jpg", folder: "Photos" }], { source: dl })).items[0]?.status).toBe("pending");
   });
 });

@@ -90,7 +90,7 @@ describe("sensitive file scanning", () => {
       expect(by[n]?.excerpt).toBeUndefined();
       expect(by[n]?.needsSummary).toBeUndefined();
     }
-    const cached = JSON.stringify([...loadSummaries().values()]);
+    const cached = JSON.stringify([...(await loadSummaries()).values()]);
     expect(cached).toContain("shopping list");
     expect(cached).not.toContain("AKIA");
     expect(cached).not.toContain("ab12");

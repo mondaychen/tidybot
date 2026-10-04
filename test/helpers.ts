@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import JSZip from "jszip";
+import { strToU8, zipSync } from "fflate";
 import { onTestFinished, vi } from "vitest";
 
 /** Fresh sandbox with its own TIDYBOT_HOME. The environment and files are restored when
@@ -25,9 +25,7 @@ export function write(file: string, content: string | Buffer = ""): string {
 }
 
 export async function zip(files: Record<string, string>): Promise<Buffer> {
-  const z = new JSZip();
-  for (const [name, content] of Object.entries(files)) z.file(name, content);
-  return z.generateAsync({ type: "nodebuffer" });
+  return Buffer.from(zipSync(Object.fromEntries(Object.entries(files).map(([name, content]) => [name, strToU8(content)]))));
 }
 
 /** Minimal PDF with one page per argument, with a correct xref table. */

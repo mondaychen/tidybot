@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import MiniSearch from "minisearch";
 import { z } from "zod";
 import { fullHashFile, hashFile } from "../hash.js";
 import { tidybotHome } from "../paths.js";
@@ -39,7 +40,7 @@ export interface Summary {
 const summariesFile = () => path.join(tidybotHome(), "summaries.jsonl");
 const indexFile = () => path.join(tidybotHome(), "index.json");
 
-export function loadSummaries(): Map<string, Summary> {
+export async function loadSummaries(): Promise<Map<string, Summary>> {
   const map = new Map<string, Summary>();
   for (const s of readJsonl<Summary>(summariesFile())) map.set(s.hash, s);
   const allowances = loadAllowances();
@@ -49,7 +50,7 @@ export function loadSummaries(): Map<string, Summary> {
   for (const [hash, s] of map) {
     const allowance = allowances[hash];
     if ((!allowance && s.source === "content" && sensitiveByName(s.name, disabled)) ||
-        (!allowance?.content && sensitiveByContent([s.summary, ...s.keywords].join("\n"), { valuesOnly: s.source === "agent", disabled }))) {
+        (!allowance?.content && (await sensitiveByContent([s.summary, ...s.keywords].join("\n"), { valuesOnly: s.source === "agent", disabled })))) {
       map.delete(hash);
     }
     // Older builds marked this partial extraction as the full spreadsheet.
@@ -204,27 +205,32 @@ export interface FindHit {
   paths: string[];
 }
 
-/** Simple keyword scoring. For fuzzy/semantic lookups, agents read `summary list` and judge. */
-export function findSummaries(query: string, opts: { limit: number; includeMissing?: boolean }): FindHit[] {
-  const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
-  if (terms.length === 0) return [];
+const WORDS = new Intl.Segmenter(undefined, { granularity: "word" });
+/** Word segmentation that also splits Chinese and Japanese, which don't separate words with spaces. */
+const tokenize = (text: string) => [...WORDS.segment(text)].filter((s) => s.isWordLike).map((s) => s.segment);
+
+/**
+ * Ranked full-text search (BM25 with prefix and fuzzy matching). Keywords count most, then the
+ * filename, then the summary text. For semantic lookups, agents read `summary list` and judge.
+ */
+export async function findSummaries(query: string, opts: { limit: number; includeMissing?: boolean }): Promise<FindHit[]> {
+  const summaries = await loadSummaries();
+  const search = new MiniSearch<Summary>({
+    idField: "hash",
+    fields: ["keywords", "name", "summary"],
+    extractField: (s, field) => (field === "keywords" ? s.keywords.join(" ") : String(s[field as keyof Summary] ?? "")),
+    tokenize,
+    searchOptions: { boost: { keywords: 3, name: 2 }, prefix: true, fuzzy: 0.2 },
+  });
+  search.addAll([...summaries.values()]);
   const index = new FileIndex();
   const hits: FindHit[] = [];
-  for (const s of loadSummaries().values()) {
-    const keywords = s.keywords.map((k) => k.toLowerCase());
-    const text = s.summary.toLowerCase();
-    const name = s.name.toLowerCase();
-    let score = 0;
-    for (const t of terms) {
-      if (keywords.includes(t)) score += 3;
-      else if (keywords.some((k) => k.includes(t))) score += 2;
-      if (name.includes(t)) score += 2;
-      if (text.includes(t)) score += 1;
-    }
-    if (score === 0) continue;
+  for (const r of search.search(query)) {
+    const s = summaries.get(r.id) as Summary;
     const paths = index.pathsFor(s.hash);
     if (paths.length === 0 && !opts.includeMissing) continue;
-    hits.push({ hash: s.hash, score, summary: s.summary, keywords: s.keywords, name: s.name, paths });
+    hits.push({ hash: s.hash, score: Math.round(r.score * 100) / 100, summary: s.summary, keywords: s.keywords, name: s.name, paths });
+    if (hits.length >= opts.limit) break;
   }
-  return hits.sort((a, b) => b.score - a.score).slice(0, opts.limit);
+  return hits;
 }

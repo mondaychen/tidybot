@@ -2,56 +2,58 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import JSZip from "jszip";
+import { strFromU8, unzipSync } from "fflate";
+import { Mime } from "mime";
+import otherTypes from "mime/types/other.js";
+import standardTypes from "mime/types/standard.js";
 import { sensitiveByContent, sensitiveByName } from "./sensitive.js";
 import type { Waivers } from "./store/allowlist.js";
 
-/** Small built-in table; enough to give the agent a type hint without another dependency. */
-const MIME: Record<string, string> = {
-  ".txt": "text/plain",
-  ".md": "text/markdown",
-  ".csv": "text/csv",
-  ".tsv": "text/tab-separated-values",
-  ".json": "application/json",
-  ".yaml": "application/yaml",
-  ".yml": "application/yaml",
-  ".xml": "application/xml",
-  ".html": "text/html",
-  ".htm": "text/html",
-  ".log": "text/plain",
-  ".pdf": "application/pdf",
-  ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-  ".doc": "application/msword",
-  ".xls": "application/vnd.ms-excel",
-  ".ppt": "application/vnd.ms-powerpoint",
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".gif": "image/gif",
-  ".webp": "image/webp",
-  ".heic": "image/heic",
-  ".svg": "image/svg+xml",
-  ".mp3": "audio/mpeg",
-  ".wav": "audio/wav",
-  ".mp4": "video/mp4",
-  ".mov": "video/quicktime",
-  ".zip": "application/zip",
-  ".gz": "application/gzip",
-  ".tar": "application/x-tar",
-  ".dmg": "application/x-apple-diskimage",
-  ".pkg": "application/vnd.apple.installer+xml",
-  ".exe": "application/vnd.microsoft.portable-executable",
-  ".msi": "application/x-msi",
-  ".deb": "application/vnd.debian.binary-package",
-  ".epub": "application/epub+zip",
-  ".ics": "text/calendar",
-  ".eml": "message/rfc822",
-};
+/** mime-db's types, with a few overrides: mime-db files installers under the generic
+ * application/octet-stream, and lists YAML as text/yaml rather than RFC 9512's application/yaml. */
+const MIME = new Mime(standardTypes, otherTypes).define(
+  {
+    "application/yaml": ["yaml", "yml"],
+    "application/x-apple-diskimage": ["dmg"],
+    "application/vnd.apple.installer+xml": ["pkg"],
+    "application/vnd.microsoft.portable-executable": ["exe"],
+    "application/x-msi": ["msi"],
+    "application/vnd.debian.binary-package": ["deb"],
+  },
+  true,
+);
 
+/** Extensions that mime-db gives a binary format but that are as often text: TypeScript (not an
+ * MPEG transport stream) and SSH public keys (not Microsoft Publisher). The file's head decides. */
+const TEXT_TYPES: Record<string, string> = {
+  ".ts": "text/typescript",
+  ".mts": "text/typescript",
+  ".pub": "text/plain",
+};
+const TYPE_SNIFF_BYTES = 4096;
+
+/** Type by extension. For the extensions above, give a path so the file's head can be checked. */
 export function mimeOf(file: string): string | null {
-  return MIME[path.extname(file).toLowerCase()] ?? null;
+  const ext = path.extname(file).toLowerCase();
+  const text = TEXT_TYPES[ext];
+  if (text && isTextFile(file)) return text;
+  return MIME.getType(ext);
+}
+
+/** False when the file can't be read: then only its extension tells. */
+function isTextFile(file: string): boolean {
+  try {
+    const fd = fs.openSync(file, "r");
+    try {
+      const buf = Buffer.alloc(TYPE_SNIFF_BYTES);
+      const n = fs.readSync(fd, buf, 0, buf.length, 0);
+      return decodeText(buf.subarray(0, n), n < buf.length) !== undefined;
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return false;
+  }
 }
 
 export interface Extracted {
@@ -84,15 +86,31 @@ const BINARY_EXT = new Set(
   ).split(" "),
 );
 
+const BOMS: [number[], string][] = [
+  [[0xef, 0xbb, 0xbf], "utf-8"],
+  [[0xff, 0xfe], "utf-16le"],
+  [[0xfe, 0xff], "utf-16be"],
+];
+
+/** Control characters other than tab, newline, form feed and carriage return: binary data, not text. */
+const CONTROL = /[\x01-\x08\x0b\x0e-\x1f]/;
+
+/** Text in UTF-8, or UTF-16 with a byte-order mark (as Excel and Windows tools export it).
+ * Other text that isn't valid UTF-8 is most likely Windows-1252 (a superset of Latin-1). */
 function decodeText(sample: Buffer, whole: boolean): string | undefined {
-  if (sample.includes(0)) return undefined;
   // Only a bounded read may end in an incomplete character. Validate every byte
   // of complete files; streaming decode holds back a partial trailing sequence.
-  try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(sample, { stream: !whole });
-  } catch {
-    return undefined;
-  }
+  const decode = (encoding: string, bytes: Buffer) => {
+    try {
+      return new TextDecoder(encoding, { fatal: true }).decode(bytes, { stream: !whole });
+    } catch {
+      return undefined;
+    }
+  };
+  const bom = BOMS.find(([mark]) => mark.every((b, i) => sample[i] === b));
+  if (bom) return decode(bom[1], sample.subarray(bom[0].length));
+  if (sample.includes(0)) return undefined;
+  return decode("utf-8", sample) ?? (CONTROL.test(sample.toString("latin1")) ? undefined : new TextDecoder("windows-1252").decode(sample));
 }
 
 /** Read at most `max` bytes from the start of a file. */
@@ -130,28 +148,35 @@ function xmlText(xml: string, tag: string, paragraphTag: string): string {
 const byNumber = (a: string, b: string) =>
   Number(a.match(/(\d+)\.xml$/)?.[1] ?? 0) - Number(b.match(/(\d+)\.xml$/)?.[1] ?? 0);
 
+const SLIDE = /^ppt\/slides\/slide\d+\.xml$/;
+const OFFICE_PARTS: Record<string, (name: string) => boolean> = {
+  ".docx": (n) => n === "word/document.xml",
+  ".pptx": (n) => SLIDE.test(n),
+  ".xlsx": (n) => n === "xl/workbook.xml" || n === "xl/sharedStrings.xml",
+};
+
 /** Returns the text and whether all of the document's text was read. */
-async function extractOffice(buf: Buffer, ext: string, limit: number): Promise<{ text: string; whole: boolean }> {
-  const zip = await JSZip.loadAsync(buf);
-  const read = (name: string) => zip.file(name)?.async("string") ?? Promise.resolve("");
-  if (ext === ".docx") return { text: xmlText(await read("word/document.xml"), "w:t", "w:p"), whole: true };
+function extractOffice(buf: Buffer, ext: string, limit: number): { text: string; whole: boolean } {
+  const wanted = OFFICE_PARTS[ext] as (name: string) => boolean;
+  // Only the parts read below are decompressed.
+  const parts = unzipSync(buf, { filter: (f) => wanted(f.name) });
+  const read = (name: string) => (parts[name] ? strFromU8(parts[name]) : "");
+  if (ext === ".docx") return { text: xmlText(read("word/document.xml"), "w:t", "w:p"), whole: true };
   if (ext === ".pptx") {
-    const slides = Object.keys(zip.files)
-      .filter((n) => /^ppt\/slides\/slide\d+\.xml$/.test(n))
-      .sort(byNumber);
-    const parts: string[] = [];
+    const slides = Object.keys(parts).sort(byNumber);
+    const texts: string[] = [];
     let len = 0;
     for (const s of slides) {
-      const t = xmlText(await read(s), "a:t", "a:p");
-      parts.push(t);
+      const t = xmlText(read(s), "a:t", "a:p");
+      texts.push(t);
       len += t.length;
       if (len > limit) break;
     }
-    return { text: parts.join("\n---\n"), whole: parts.length === slides.length };
+    return { text: texts.join("\n---\n"), whole: texts.length === slides.length };
   }
   // xlsx: sheet names + shared strings is a cheap, representative summary.
-  const sheets = [...(await read("xl/workbook.xml")).matchAll(/<sheet [^>]*name="([^"]*)"/g)].map((m) => decodeXml(m[1] ?? ""));
-  const strings = xmlText(await read("xl/sharedStrings.xml"), "t", "si");
+  const sheets = [...read("xl/workbook.xml").matchAll(/<sheet [^>]*name="([^"]*)"/g)].map((m) => decodeXml(m[1] ?? ""));
+  const strings = xmlText(read("xl/sharedStrings.xml"), "t", "si");
   // Worksheet values, inline strings and formulas are not read by this preview.
   // Even a short preview must not suppress agent summarization of the workbook.
   return { text: `Sheets: ${sheets.join(", ")}\n${strings}`, whole: false };
@@ -210,7 +235,7 @@ export async function extractExcerpt(file: string, limit: number, waivers: Waive
       if (size > MAX_DOC_BYTES) return { method, excerpt: "", complete: false, skipped: `larger than ${MAX_DOC_BYTES / 1024 / 1024} MB` };
       const buf = await fs.promises.readFile(file);
       method = ext.slice(1) as Extracted["method"];
-      ({ text, whole } = ext === ".pdf" ? await extractPdf(buf, limit) : await extractOffice(buf, ext, limit));
+      ({ text, whole } = ext === ".pdf" ? await extractPdf(buf, limit) : extractOffice(buf, ext, limit));
     } else {
       // Enough bytes for `limit` characters of (up to 4-byte) UTF-8, and at least a sniff sample.
       const head = await readHead(file, Math.max(SNIFF_BYTES, limit * 4));
@@ -222,7 +247,7 @@ export async function extractExcerpt(file: string, limit: number, waivers: Waive
     }
     const normalized = text.replace(/[ \t]+/g, " ").trim();
     // Check all the text we read, not just the excerpt, so a secret just past the cut still counts.
-    const byContent = waivers.content ? undefined : sensitiveByContent(normalized, { disabled: waivers.disabled });
+    const byContent = waivers.content ? undefined : await sensitiveByContent(normalized, { disabled: waivers.disabled });
     if (byContent) return { method, excerpt: "", complete: false, sensitive: byContent.reason, sensitiveRule: byContent.rule };
     return {
       method,

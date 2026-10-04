@@ -16,7 +16,7 @@ export async function saveSummaries(input: unknown, opts: { base: string; model?
   if (!parsed.success) throw new TidyError(`Invalid summaries: ${z.prettifyError(parsed.error)}`, "invalid_input");
 
   const index = new FileIndex();
-  const existing = loadSummaries();
+  const existing = await loadSummaries();
   const allowances = loadAllowances();
   const disabled = new Set(opts.allowRules ?? []);
   const records: Summary[] = [];
@@ -41,7 +41,7 @@ export async function saveSummaries(input: unknown, opts: { base: string; model?
       // A file allowed with --content is known to be harmless text; otherwise vet for secret values.
       const leak = allowances[hash as string]?.content
         ? undefined
-        : sensitiveByContent([s.summary, ...s.keywords].join("\n"), { valuesOnly: true, disabled });
+        : await sensitiveByContent([s.summary, ...s.keywords].join("\n"), { valuesOnly: true, disabled });
       if (leak) {
         throw new TidyError(
           `Summary for ${s.file ?? s.hash} looks like it contains a secret (${leak.reason}, rule ${leak.rule}). Describe the file without copying credentials.`,
@@ -71,7 +71,7 @@ export async function saveSummaries(input: unknown, opts: { base: string; model?
 /** Cached summaries for specific files (by path). Hashes files as needed. */
 export async function getSummaries(files: string[], base: string) {
   const index = new FileIndex();
-  const summaries = loadSummaries();
+  const summaries = await loadSummaries();
   const out = [];
   for (const f of files) {
     const file = resolvePath(f, base);
@@ -84,9 +84,9 @@ export async function getSummaries(files: string[], base: string) {
 }
 
 /** Every cached summary with its current known locations (for agent-side semantic search). */
-export function listSummaries(opts: { includeMissing?: boolean } = {}) {
+export async function listSummaries(opts: { includeMissing?: boolean } = {}) {
   const index = new FileIndex();
-  return [...loadSummaries().values()]
+  return [...(await loadSummaries()).values()]
     .map((s) => ({ ...s, paths: index.pathsFor(s.hash) }))
     .filter((s) => opts.includeMissing || s.paths.length > 0);
 }

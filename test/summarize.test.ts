@@ -50,8 +50,8 @@ describe("sensitive content after revocation", () => {
     await scan(dl, { maxFiles: 10, excerptChars: 100 });
     removeAllowance(allowed[0]!.hash);
     fs.unlinkSync(file);
-    expect(listSummaries({ includeMissing: true })).toEqual([]);
-    expect(findSummaries("changeme123", { limit: 10, includeMissing: true })).toEqual([]);
+    expect(await listSummaries({ includeMissing: true })).toEqual([]);
+    expect(await findSummaries("changeme123", { limit: 10, includeMissing: true })).toEqual([]);
   });
 });
 
@@ -60,7 +60,7 @@ describe("summary validation", () => {
     const f = write(path.join(dl, "creds.json"), "{}");
     await expect(saveSummaries([{ file: f, summary: "Google OAuth file, client_secret: GOCSPX-123456" }], { base: dl })).rejects.toThrow(/secret/);
     await saveSummaries([{ file: f, summary: "Google OAuth client credentials for the CLI project" }], { base: dl });
-    expect(listSummaries()).toHaveLength(1);
+    expect(await listSummaries()).toHaveLength(1);
   });
 
   it("saves nothing from a batch that is rejected", async () => {
@@ -70,11 +70,11 @@ describe("summary validation", () => {
       { file: a, summary: "Notes about the alpha project" },
       { file: b, summary: "password: hunter2345" },
     ], { base: dl })).rejects.toThrow(/secret/);
-    expect(listSummaries({ includeMissing: true })).toEqual([]);
+    expect(await listSummaries({ includeMissing: true })).toEqual([]);
     await expect(saveSummaries([
       { file: a, summary: "Notes about the alpha project" },
       { file: "missing.txt", summary: "Gone" },
     ], { base: dl })).rejects.toThrow(/not found/i);
-    expect(listSummaries({ includeMissing: true })).toEqual([]);
+    expect(await listSummaries({ includeMissing: true })).toEqual([]);
   });
 });

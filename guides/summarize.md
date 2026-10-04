@@ -30,6 +30,6 @@ cached automatically).
    (or pipe on stdin). Then continue with `tidybot guide organize`.
 
 ## Finding files later
-- `tidybot find <words...>` does keyword search over summaries and names.
+- `tidybot find <words...>` does ranked search over summaries, keywords and names (word prefixes match).
 - For vague requests ("that lease thing from last spring"), read
   `tidybot summary list` and judge semantically yourself.

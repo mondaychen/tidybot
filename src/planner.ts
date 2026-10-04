@@ -118,10 +118,10 @@ export function refreshWarnings(plan: Plan): void {
 }
 
 /** Create a new plan, or merge into an existing open plan (later proposals win per file). */
-export function propose(
+export async function propose(
   input: unknown,
   opts: { source: string; config?: Partial<Config>; appendTo?: Plan; allowUnsummarized?: boolean },
-): Plan {
+): Promise<Plan> {
   const parsed = ProposeInputSchema.safeParse(input);
   if (!parsed.success) throw new TidyError(`Invalid proposal: ${z.prettifyError(parsed.error)}`, "invalid_input");
   const data = parsed.data;
@@ -135,7 +135,7 @@ export function propose(
 
   const config = { ...loadConfig(), ...opts.config };
   const index = new FileIndex();
-  const summaries = loadSummaries();
+  const summaries = await loadSummaries();
   const ctx: ProposeContext = {
     source,
     folders,

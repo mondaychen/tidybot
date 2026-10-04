@@ -53,6 +53,8 @@ describe("scan & survey", () => {
   it("caps and filters", async () => {
     expect((await scan(dl, { maxFiles: 1, excerptChars: 0 })).truncated).toBe(true);
     expect((await scan(dl, { maxFiles: 10, excerptChars: 0, match: "*.MD" })).files.map((f) => f.name)).toEqual(["roadmap.md"]);
+    expect((await scan(dl, { maxFiles: 10, excerptChars: 0, match: "*.{txt,md}" })).files.map((f) => f.name)).toEqual(["invoice.txt", "roadmap.md"]);
+    expect((await scan(dl, { maxFiles: 10, excerptChars: 0, match: "invoice.tx?" })).files.map((f) => f.name)).toEqual(["invoice.txt"]);
   });
 
   it("summarizes directory trees", () => {
@@ -78,22 +80,22 @@ describe("propose → apply → undo", () => {
       { source: dl },
     );
 
-  it("validates proposals into item statuses", () => {
-    const plan = proposeBoth();
+  it("validates proposals into item statuses", async () => {
+    const plan = await proposeBoth();
     expect(plan.items.map((i) => i.status)).toEqual(["pending", "pending", "invalid"]);
     expect(plan.items[0]?.folder).toBe("Bills");
-    const bad = propose([{ file: "invoice.txt", folder: "Nope" }], { source: dl });
+    const bad = await propose([{ file: "invoice.txt", folder: "Nope" }], { source: dl });
     expect(bad.items[0]).toMatchObject({ status: "invalid", note: 'unknown smart folder "Nope"' });
-    const none = propose([{ file: "invoice.txt", folder: null }], { source: dl });
+    const none = await propose([{ file: "invoice.txt", folder: null }], { source: dl });
     expect(none.items[0]?.status).toBe("skipped");
   });
 
-  it("rejects malformed input", () => {
-    expect(() => propose({ items: [{ file: "x" }] }, { source: dl })).toThrow(/Invalid proposal/);
+  it("rejects malformed input", async () => {
+    await expect(propose({ items: [{ file: "x" }] }, { source: dl })).rejects.toThrow(/Invalid proposal/);
   });
 
-  it("moves files, records history, and undoes a whole plan", () => {
-    const plan = proposeBoth();
+  it("moves files, records history, and undoes a whole plan", async () => {
+    const plan = await proposeBoth();
     expect(applyPlan(plan, { dryRun: true }).wouldMove).toHaveLength(2);
     expect(fs.existsSync(path.join(dl, "invoice.txt"))).toBe(true);
 
@@ -109,19 +111,19 @@ describe("propose → apply → undo", () => {
     expect(loadMoves().every((m) => m.state === "undone")).toBe(true);
   });
 
-  it("never overwrites; can rename on conflict", () => {
+  it("never overwrites; can rename on conflict", async () => {
     write(path.join(root, "docs/bills/invoice.txt"), "existing");
-    const p1 = propose([{ file: "invoice.txt", folder: "Bills" }], { source: dl });
+    const p1 = await propose([{ file: "invoice.txt", folder: "Bills" }], { source: dl });
     expect(applyPlan(p1).failed[0]?.error).toMatch(/already exists/);
     expect(fs.readFileSync(path.join(root, "docs/bills/invoice.txt"), "utf8")).toBe("existing");
 
-    const p2 = propose([{ file: "invoice.txt", folder: "Bills" }], { source: dl });
+    const p2 = await propose([{ file: "invoice.txt", folder: "Bills" }], { source: dl });
     const r = applyPlan(p2, { onConflict: "rename" });
     expect(r.moved[0]?.to).toBe(path.join(root, "docs/bills/invoice (1).txt"));
   });
 
-  it("lets the user retarget and skip", () => {
-    const plan = proposeBoth();
+  it("lets the user retarget and skip", async () => {
+    const plan = await proposeBoth();
     retarget(plan, "invoice.txt", { path: path.join(root, "custom") });
     skip(plan, "roadmap.md");
     applyPlan(plan);
@@ -129,9 +131,9 @@ describe("propose → apply → undo", () => {
     expect(fs.existsSync(path.join(dl, "roadmap.md"))).toBe(true);
   });
 
-  it("appends to an existing plan, later proposals win", () => {
-    const plan = propose([{ file: "invoice.txt", folder: "Work" }], { source: dl });
-    propose([{ file: "invoice.txt", folder: "Bills" }, { file: "roadmap.md", folder: "Work" }], { source: dl, appendTo: loadPlan(plan.id) });
+  it("appends to an existing plan, later proposals win", async () => {
+    const plan = await propose([{ file: "invoice.txt", folder: "Work" }], { source: dl });
+    await propose([{ file: "invoice.txt", folder: "Bills" }, { file: "roadmap.md", folder: "Work" }], { source: dl, appendTo: loadPlan(plan.id) });
     const merged = loadPlan(plan.id);
     expect(merged.items.map((i) => [path.basename(i.file), i.folder])).toEqual([
       ["invoice.txt", "Bills"],
@@ -139,8 +141,8 @@ describe("propose → apply → undo", () => {
     ]);
   });
 
-  it("reports failed undo and allows forgetting the entry", () => {
-    const plan = proposeBoth();
+  it("reports failed undo and allows forgetting the entry", async () => {
+    const plan = await proposeBoth();
     applyPlan(plan);
     fs.rmSync(path.join(root, "docs/bills/invoice.txt"));
     const u = undoMoves(selectMoves({ planId: plan.id }));

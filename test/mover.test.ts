@@ -28,10 +28,10 @@ afterEach(() => {
 });
 
 describe("move safety", () => {
-  it("rolls a completed move back if appending its history record fails", () => {
+  it("rolls a completed move back if appending its history record fails", async () => {
     const from = write(path.join(dl, "report.txt"), "original contents");
     const to = path.join(docs, "report.txt");
-    const plan = propose([{ file: from, folder: "Docs" }], { source: dl });
+    const plan = await propose([{ file: from, folder: "Docs" }], { source: dl });
     const open = fs.openSync;
     let failedAfterMove = false;
     vi.spyOn(fs, "openSync").mockImplementation((file, flags, mode) => {
@@ -49,10 +49,10 @@ describe("move safety", () => {
     expect(fs.readdirSync(path.join(root, "home", "operations"))).toEqual([]);
   });
 
-  it("does not leave a moved file without undo history when recording fails", () => {
+  it("does not leave a moved file without undo history when recording fails", async () => {
     const from = write(path.join(dl, "report.txt"), "original contents");
     const to = path.join(docs, "report.txt");
-    const plan = propose([{ file: from, folder: "Docs" }], { source: dl });
+    const plan = await propose([{ file: from, folder: "Docs" }], { source: dl });
     // A directory at the log path reliably blocks writes, even when run as root.
     const history = path.join(root, "home", "history.jsonl");
     fs.mkdirSync(history);
@@ -123,7 +123,7 @@ describe("cache identity after edits", () => {
     await scan(dl, { maxFiles: 10, excerptChars: 100 });
     const oldHash = new FileIndex().cachedHash(from);
     expect(oldHash).toBeTruthy();
-    const plan = propose([{ file: from, folder: "Docs" }], { source: dl });
+    const plan = await propose([{ file: from, folder: "Docs" }], { source: dl });
     if (operation === "undo") expect(applyPlan(plan).failed).toEqual([]);
 
     const edited = operation === "apply" ? from : to;
@@ -144,9 +144,9 @@ describe("cache identity after edits", () => {
 });
 
 describe("filename handling", () => {
-  it("a long Chinese rename succeeds at apply time", () => {
+  it("a long Chinese rename succeeds at apply time", async () => {
     write(path.join(dl, "3f2a.pdf"), "x");
-    const plan = propose([{ file: "3f2a.pdf", folder: "Docs", rename: "年度财务报告".repeat(30) }], { source: dl });
+    const plan = await propose([{ file: "3f2a.pdf", folder: "Docs", rename: "年度财务报告".repeat(30) }], { source: dl });
     const r = applyPlan(plan);
     expect(r.failed).toEqual([]);
     expect(r.moved).toHaveLength(1);
@@ -157,9 +157,9 @@ describe("filename handling", () => {
     expect(fs.readdirSync(docs)).toEqual([name]);
   });
 
-  it.runIf(caseInsensitiveFs())("renames a file to a case-only variant and undoes it", () => {
+  it.runIf(caseInsensitiveFs())("renames a file to a case-only variant and undoes it", async () => {
     write(path.join(dl, "report.pdf"), "x");
-    const plan = propose([{ file: "report.pdf", folder: null, rename: "Report" }], { source: dl });
+    const plan = await propose([{ file: "report.pdf", folder: null, rename: "Report" }], { source: dl });
     expect(plan.items[0]?.warnings).toBeUndefined();
     expect(applyPlan(plan).failed).toEqual([]);
     expect(fs.readdirSync(dl)).toEqual(["Report.pdf"]);
@@ -173,14 +173,14 @@ describe("cross-device moves", () => {
     const from = write(path.join(dl, "notes.txt"), "quarterly planning notes");
     fs.utimesSync(from, 1790611498.797949, 1790611498.797949);
     await scan(dl, { maxFiles: 10, excerptChars: 100 });
-    expect(findSummaries("quarterly", { limit: 5 })[0]?.paths).toEqual([from]);
-    const plan = propose([{ file: from, folder: "Docs" }], { source: dl });
+    expect((await findSummaries("quarterly", { limit: 5 }))[0]?.paths).toEqual([from]);
+    const plan = await propose([{ file: from, folder: "Docs" }], { source: dl });
     const link = fs.linkSync;
     vi.spyOn(fs, "linkSync").mockImplementation((source, destination) => {
       if (source === from) throw Object.assign(new Error("cross device"), { code: "EXDEV" });
       link(source, destination);
     });
     expect(applyPlan(plan).moved).toHaveLength(1);
-    expect(findSummaries("quarterly", { limit: 5 })[0]?.paths).toEqual([path.join(docs, "notes.txt")]);
+    expect((await findSummaries("quarterly", { limit: 5 }))[0]?.paths).toEqual([path.join(docs, "notes.txt")]);
   });
 });

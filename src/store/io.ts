@@ -1,22 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
+import writeFileAtomic from "write-file-atomic";
 import YAML from "yaml";
 
 function writeAtomic(file: string, content: string): void {
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  const tmp = `${file}.${process.pid}.tmp`;
-  const fd = fs.openSync(tmp, "w", 0o600);
-  try {
-    fs.writeFileSync(fd, content);
-    fs.fsyncSync(fd);
-  } finally {
-    fs.closeSync(fd);
-  }
-  try {
-    fs.renameSync(tmp, file);
-  } finally {
-    fs.rmSync(tmp, { force: true });
-  }
+  // An explicit mode keeps stores private even if the old file was readable by others.
+  writeFileAtomic.sync(file, content, { mode: 0o600 });
 }
 
 export function readYaml<T>(file: string): T | undefined {

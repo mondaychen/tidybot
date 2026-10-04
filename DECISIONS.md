@@ -66,7 +66,7 @@ rest for a CLI that an agent drives. Open questions are collected at the end und
      most recently written summaries. Both default to 0 (unlimited). They're enforced after each write
      (apply, undo, forget, summary save, scan) and by `tidybot compact`. Superseded summary records are
      always dropped when summaries are written. Dropped moves can't be undone.
-   - Rewritten files use temp file + flush + rename. Moves, undo, recovery, `forget` and `compact` share a
+   - Rewritten files use temp file + flush + rename (`write-file-atomic`), and are always written mode 0600. Moves, undo, recovery, `forget` and `compact` share a
      process lock, because they all write `history.jsonl`. Other stores still assume one writer; atomic
      replacement alone does not prevent lost updates.
    - Only `move-locks/<pid>-<uuid>.lock` files count as claims (not Finder's `.DS_Store`). A claim is
@@ -98,7 +98,17 @@ rest for a CLI that an agent drives. Open questions are collected at the end und
 8. **Files are identified by path relative to the plan's `source`.** Absolute paths are stored internally.
 
 9. **Content extraction:**
-   - `unpdf` for PDF, and `jszip` plus light XML parsing for DOCX/PPTX/XLSX.
+   - `unpdf` for PDF, and `fflate` plus light XML parsing for DOCX/PPTX/XLSX. Only the archive entries that
+     are read get decompressed.
+   - Text files are read as UTF-8, or as UTF-16 when they start with a byte-order mark (Excel and Windows
+     exports). Other text that isn't valid UTF-8 is read as Windows-1252, a superset of Latin-1. Data with
+     NUL bytes or control characters other than tab, newline, form feed and carriage return is binary.
+   - File types come from mime-db (the `mime` package), with overrides for installers (`.dmg`, `.pkg`,
+     `.exe`, `.msi`, `.deb`) and for YAML (`application/yaml`). mime-db gives some extensions a binary
+     format that are as often text: `.ts` and `.mts` (MPEG transport stream, or TypeScript) and `.pub`
+     (Microsoft Publisher, or an SSH public key). For those, the first 4 KB decide: text by the same test
+     as extraction gets `text/typescript` or `text/plain`; anything else, or an unreadable file, keeps
+     mime-db's type.
    - PDFs in non-embedded CJK fonts extract as nothing without pdf.js's CMaps, which unpdf doesn't bundle. The
      build copies them (about 1.6 MB) from `pdfjs-dist`, a dev dependency pinned to unpdf's pdf.js version.
    - Excerpts are capped by `excerptChars` (default 1000).
@@ -117,10 +127,12 @@ rest for a CLI that an agent drives. Open questions are collected at the end und
 12. **Smart rename.**
     - A proposal can carry `rename` (a filename only). tidybot sanitizes it:
       - It rejects `/`, `\` and NUL.
-      - It replaces `<>:"|?*` and control characters with `-`, and strips leading dots.
-      - It caps names at 200 characters.
+      - It replaces `<>:"|?*` and control characters with `-`, collapses runs of whitespace, strips
+        leading dots, and strips trailing dots and spaces.
+      - It caps names at 255 bytes, truncating on grapheme boundaries (see #18 for how bytes are counted).
       - It **re-adds the original extension** if the agent dropped or changed it (compared case-insensitively),
         so a rename can never change a file's type.
+      - A name that comes out the same as the current one, or empty, means no rename.
     - `folder: null` together with `rename` means rename in place.
     - `rename` mode in config:
       - `auto` (default): rename only unhelpful names and conflicts.
@@ -161,8 +173,10 @@ rest for a CLI that an agent drives. Open questions are collected at the end und
       effort, with batches of about 5–10 files, and includes a subagent prompt. tidybot hashes files
       itself; it doesn't trust hashes from the agent. A batch is all-or-nothing: if any item is refused
       (a missing file, a secret value), none of it is saved, so a corrected retry doesn't duplicate records.
-    - **Search**: `find` does simple keyword scoring (keyword match 3, name 2, summary text 1). Fuzzy or
-      semantic lookups are left to the agent via `summary list`.
+    - **Search**: `find` ranks matches with MiniSearch (BM25), boosting keywords ×3 and the filename ×2
+      over summary text. Words match by prefix (`invo` finds `invoice`) and tolerate small typos. Text is
+      split into words with `Intl.Segmenter`, so Chinese and Japanese summaries are searchable by word.
+      Semantic lookups are left to the agent via `summary list`.
 
 16. **Sensitive files (found in an external review against a real Downloads folder).** Short files used to
     have their full text cached as a summary. That stored recovery codes, an OAuth `client_secret` and a
@@ -174,7 +188,11 @@ rest for a CLI that an agent drives. Open questions are collected at the end und
         Files that match by name are never opened.
       - **By content**, over all the text read, not just the excerpt: private keys, AWS/GitHub/Slack/Stripe/
         Google/`sk-` keys, `client_secret`, JWTs, 1Password secret keys, `password=…` assignments, and lists
-        of one-time codes.
+        of one-time codes. After these, secretlint's maintained recommended rules run as one more rule,
+        `content.secretlint`, covering cloud, SaaS and database credentials (npm, GitLab, OpenAI,
+        connection strings with passwords, and others). Its `filter-comments` rule is left out, so a
+        `secretlint-disable` comment in a file can't switch detection off. The reason names the
+        secretlint rule (`secret value (npm)`) but never its message, which quotes the secret.
     - For sensitive files: no excerpt, no cached summary, no `needsSummary`, a `sensitive: "<reason>"` field,
       and a count in the `scan` output. The organize guide tells the agent not to open them and to suggest a
       password manager. Sensitive images are exempt from the "images need a summary" rule.
@@ -260,7 +278,7 @@ rest for a CLI that an agent drives. Open questions are collected at the end und
 
 ## 🟡 Open questions
 
-1. **Is `find` enough?** Keyword scoring plus agent-side semantic search over `summary list` works
+1. **Is `find` enough?** Ranked full-text search plus agent-side semantic search over `summary list` works
    for hundreds or low thousands of files. Past that, `summary list` gets too big for an agent's context.
    Options: add `--since`, `--folder` or `--type` filters, or store embeddings (which would need a model,
    and so contradicts decision #1). I'd wait until it hurts.

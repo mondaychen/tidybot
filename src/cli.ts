@@ -100,7 +100,7 @@ function addScanOptions(cmd: Command): Command {
   return cmd
     .argument("[dir]", "directory to scan (default: config `source`)")
     .option("-r, --recursive", "include files in subdirectories")
-    .option("-m, --match <glob>", "only filenames matching this pattern, e.g. '*.pdf'")
+    .option("-m, --match <glob>", "only filenames matching this glob, e.g. '*.pdf' or '*.{jpg,png}'")
     .option("--max-files <n>", "files per page (default: config maxFiles)", int)
     .option("--offset <n>", "skip this many files (use `nextOffset` from the previous page)", int)
     .option("--older-than <age>", "leave recent files alone: only files older than e.g. 14d, 2w, 3m (default: config olderThan)")
@@ -235,11 +235,11 @@ program
   .option("-s, --source <dir>", "directory that relative file paths refer to (default: config `source`)")
   .option("-a, --append [planId]", "merge into an existing open plan (default: latest open)")
   .option("--allow-unsummarized", "accept images that have no cached summary")
-  .action((file: string | undefined, o) => {
+  .action(async (file: string | undefined, o) => {
     const input = readInput(o, file);
     const config = loadConfig();
     const appendTo = o.append ? loadPlan(o.append === true ? undefined : o.append) : undefined;
-    const plan = propose(input, { source: o.source ?? config.source, config, appendTo, allowUnsummarized: o.allowUnsummarized });
+    const plan = await propose(input, { source: o.source ?? config.source, config, appendTo, allowUnsummarized: o.allowUnsummarized });
     emit({ ok: true, plan }, () => `${renderPlan(plan)}\n\nReview, then run: tidybot apply ${plan.id}`);
   });
 
@@ -288,8 +288,8 @@ summary
   .command("list")
   .description("all cached summaries with current file locations (for semantic search by an agent)")
   .option("--include-missing", "include summaries whose file location is unknown")
-  .action((o) => {
-    const rows = listSummaries({ includeMissing: o.includeMissing });
+  .action(async (o) => {
+    const rows = await listSummaries({ includeMissing: o.includeMissing });
     emit(rows, () =>
       rows.length ? rows.map((r) => `${r.paths.map(contractHome).join(", ") || "(location unknown)"}\n  ${r.summary.slice(0, 120)}`).join("\n") : "No summaries yet.",
     );
@@ -311,8 +311,8 @@ program
   .argument("<words...>")
   .option("-l, --limit <n>", "max results", int, 20)
   .option("--include-missing", "include matches whose file location is unknown")
-  .action((words: string[], o) => {
-    const hits = findSummaries(words.join(" "), { limit: o.limit, includeMissing: o.includeMissing });
+  .action(async (words: string[], o) => {
+    const hits = await findSummaries(words.join(" "), { limit: o.limit, includeMissing: o.includeMissing });
     emit(hits, () =>
       hits.length
         ? hits.map((h) => `${h.paths.map(contractHome).join(", ") || `(moved/unknown: ${h.name})`}\n  ${h.summary.slice(0, 140).replace(/\s+/g, " ")}`).join("\n")
