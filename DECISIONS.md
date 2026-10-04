@@ -276,6 +276,29 @@ rest for a CLI that an agent drives. Open questions are collected at the end und
       technically gated. If you want a hard gate, deny `Bash(tidybot sensitive allow-rule*)` and
       `Bash(tidybot sensitive allow*--content*)` in the agent's permissions, the same way as for `apply`.
 
+25. **Hidden files** *(requested)*. `scan`, `summary todo` and `survey` leave out what the OS file browser hides:
+    - **Everywhere:** names starting with a dot.
+    - **macOS:** the hidden flag (`chflags hidden`), which is how `~/Library` is hidden. Node's `fs.Stats`
+      doesn't expose file flags and no maintained package reads them, so tidybot runs
+      `/usr/bin/find <dir> -maxdepth 1 -flags +hidden` once per directory (0.34 s for a recursive scan of a
+      real Downloads folder). The full path avoids GNU find, which has no `-flags`. Finder's older
+      "invisible" bit in `com.apple.FinderInfo` is rarely set now and isn't checked.
+    - **Windows:** the hidden **or system** attribute, since Explorer hides both by default. They're read with
+      `fswin`, an optional dependency with prebuilt binaries, one call per directory. If it can't load, only
+      dotfiles count. Not tested on Windows yet.
+    - **Linux:** names listed in a directory's `.hidden` file, which GNOME Files and KDE Dolphin honor.
+    - `--include-hidden` lists everything. `--include <glob>` (repeatable) lists specific hidden entries: a
+      glob without a slash matches names, one with a slash matches the path relative to the scanned
+      directory. A matched hidden folder is walked, but hidden entries inside it need their own match.
+    - Never listed, even with `--include-hidden`: tidybot's own `.tidybot/` and `.tidybot-move-*` staging
+      folders, and folder metadata (`.DS_Store`, `.localized`, `Thumbs.db`, `desktop.ini`). Moving those is
+      pointless or breaks a folder's view settings.
+    - `scan` reports `skippedHidden`: hidden entries that would otherwise have been listed or walked into.
+      A directory the user can't read (such as `~/.Trash` without Full Disk Access) is skipped and listed
+      in `unreadable`, instead of failing the scan.
+    - The scan root itself is never checked: scanning a hidden folder by name means you asked for it.
+    - `survey` no longer special-cases a folder named `Library`; on macOS it's hidden anyway.
+
 ## 🟡 Open questions
 
 1. **Is `find` enough?** Ranked full-text search plus agent-side semantic search over `summary list` works

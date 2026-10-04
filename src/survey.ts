@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { alwaysSkipped, type HiddenOptions, hiddenFilter } from "./hidden.js";
 import { contractHome, resolvePath } from "./paths.js";
 import { assertDir } from "./scan.js";
 
@@ -17,7 +18,7 @@ export interface DirSummary {
   smartFolder?: string;
 }
 
-export interface SurveyOptions {
+export interface SurveyOptions extends HiddenOptions {
   depth: number;
   samples: number;
   maxDirs: number;
@@ -25,7 +26,8 @@ export interface SurveyOptions {
   folders?: { name: string; path: string }[];
 }
 
-const SKIP = new Set(["node_modules", ".git", "Library", "__pycache__", ".venv"]);
+/** Never useful for proposing folders. (~/Library is skipped as a hidden folder on macOS.) */
+const SKIP = new Set(["node_modules", ".git", "__pycache__", ".venv"]);
 
 /**
  * Summarize existing directory structure so an agent can propose smart folders.
@@ -36,6 +38,7 @@ export function survey(root: string, opts: SurveyOptions): { root: string; dirs:
   const dirs: DirSummary[] = [];
   let truncated = false;
   const smart = new Map((opts.folders ?? []).map((f) => [resolvePath(f.path), f.name]));
+  const hiddenIn = hiddenFilter(root, opts);
 
   const visit = (dir: string, depth: number): number => {
     let entries: fs.Dirent[];
@@ -44,7 +47,8 @@ export function survey(root: string, opts: SurveyOptions): { root: string; dirs:
     } catch {
       return 0;
     }
-    const visible = entries.filter((e) => !e.name.startsWith("."));
+    const hidden = hiddenIn(dir);
+    const visible = entries.filter((e) => !alwaysSkipped(e.name) && !hidden(e.name));
     const fileNames = visible.filter((e) => e.isFile()).map((e) => e.name);
     const subdirs = visible.filter((e) => e.isDirectory() && !SKIP.has(e.name));
     const exts = new Map<string, number>();

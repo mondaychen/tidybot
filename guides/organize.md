@@ -77,3 +77,8 @@ Detection errs on the side of flagging; `sensitiveRule` says which rule fired
 ## Large directories
 Scan pages through files (`nextOffset`). Propose each page, adding later pages to the same
 plan with `tidybot propose --append`. `--match '*.pdf'` narrows a scan by name.
+
+## Hidden files
+Scans leave out hidden files and folders (dotfiles, and whatever the OS marks hidden); `skippedHidden`
+counts them. Only include them when the user asks: `--include <glob>` for specific ones
+(e.g. `--include .env.example`), `--include-hidden` for all.

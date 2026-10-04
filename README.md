@@ -39,13 +39,13 @@ Requires Node 20+.
 | Command | What it does |
 |---|---|
 | `guide [overview\|organize\|summarize\|onboard]` | Instructions for the agent. `overview` (the default) is the entry point: overall workflow and rules. The others cover how to judge, renaming, onboarding and the subagent prompt |
-| `scan [dir] [-r] [--older-than 14d] [--offset n] [--full]` | Compact list of files (type, size, date, summary or short preview, flags: `sensitive`, `duplicate`, `needsSummary`, `more`), plus duplicate groups, smart folders, rules, naming style and rename mode. Skips files already in smart folders and, if asked, recent ones. Pages with `nextOffset` |
+| `scan [dir] [-r] [--older-than 14d] [--offset n] [--full] [--include-hidden] [--include <glob>]` | Compact list of files (type, size, date, summary or short preview, flags: `sensitive`, `duplicate`, `needsSummary`, `more`), plus duplicate groups, smart folders, rules, naming style and rename mode. Skips hidden files, files already in smart folders and, if asked, recent ones. Pages with `nextOffset` |
 | `inspect <files...>` | Full excerpt and details for specific files (step 2 after `scan`) |
 | `summary todo [dir] [-r]` | Files that still need a summary |
 | `summary save [--data] [--model]` | Stores agent-written summaries: `[{file, summary, keywords[]}]` |
 | `summary get <files...>` / `summary list` | Reads summaries back (`list` is for semantic search on the agent side) |
 | `propose [--data] [--append] [--allow-unsummarized]` | Saves `{file, folder, rename?, reason, confidence}` choices as a plan. Moves nothing |
-| `survey <dirs...>` | Summarizes existing folder trees, for onboarding |
+| `survey <dirs...> [--include-hidden] [--include <glob>]` | Summarizes existing folder trees, for onboarding. Skips hidden folders |
 | `folders import [--data] [--dry-run]` | Adds or updates many smart folders at once |
 
 **Human-facing**

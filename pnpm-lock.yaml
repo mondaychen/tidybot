@@ -224,6 +224,10 @@ importers:
       vitest:
         specifier: ^5.0.2
         version: 5.0.2(@types/node@26.6.2)(vite@8.3.1(@types/node@26.6.2)(esbuild@0.28.2)(tsx@4.23.15)(yaml@2.9.1))
+    optionalDependencies:
+      fswin:
+        specifier: ^3.25.1108
+        version: 3.25.1108
 
 packages:
 
@@ -796,6 +800,10 @@ packages:
     resolution: {integrity: sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw==}
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
     os: [darwin]
+
+  fswin@3.25.1108:
+    resolution: {integrity: sha512-GyWixip07xo7+8oWheDynqdTn96h7W9Nlv6mHTK/jfDXAD+sSucWuqrk5mipLJKxe7vOsM22bisJPyGgLjdoIw==}
+    engines: {node: '>= 8.0'}
 
   lightningcss-android-arm64@1.33.0:
     resolution: {integrity: sha512-gEpRTalKdosp4Bb8qWtc2iOgE5SeIHlpS1up9bFq2wAyYhl1UdTObYiHe98zEM9SQvSoqQZ1IQD0JNpg3Ml5pg==}
@@ -1416,6 +1424,9 @@ snapshots:
   fflate@0.8.3: {}
 
   fsevents@2.3.3:
+    optional: true
+
+  fswin@3.25.1108:
     optional: true
 
   lightningcss-android-arm64@1.33.0:

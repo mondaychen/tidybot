@@ -40,6 +40,11 @@ const int = (v: string) => {
   return n;
 };
 
+/** For repeatable options. */
+const collect = (value: string, previous: string[]) => [...previous, value];
+
+const INCLUDE_HELP = "also list hidden files or folders matching this glob: a name, or a path relative to the directory if it has a slash (repeatable)";
+
 /** Structured input from --data, a file path, "-" or piped stdin. */
 function readInput(opts: { data?: string }, file?: string): unknown {
   if (opts.data) return parseStructured(opts.data);
@@ -105,7 +110,9 @@ function addScanOptions(cmd: Command): Command {
     .option("--offset <n>", "skip this many files (use `nextOffset` from the previous page)", int)
     .option("--older-than <age>", "leave recent files alone: only files older than e.g. 14d, 2w, 3m (default: config olderThan)")
     .option("--any-age", "ignore the configured olderThan filter")
-    .option("--include-organized", "also scan files already inside smart folders (skipped by default)");
+    .option("--include-organized", "also scan files already inside smart folders (skipped by default)")
+    .option("--include-hidden", "also scan hidden files and folders (dotfiles, and files the OS marks hidden or system)")
+    .option("--include <glob>", INCLUDE_HELP, collect, []);
 }
 
 async function runScan(dirArg: string | undefined, o: Record<string, unknown>, excerptChars?: number) {
@@ -123,6 +130,8 @@ async function runScan(dirArg: string | undefined, o: Record<string, unknown>, e
     excerptChars: excerptChars ?? config.excerptChars,
     allowRules: config.allowRules,
     skipFolders: skipOrganized ? folders : [],
+    includeHidden: !!o.includeHidden,
+    include: o.include as string[],
     noHash: o.content === false,
   });
   return { config, folders, dir, olderThan, ...result };
@@ -154,6 +163,8 @@ addScanOptions(
       olderThan: r.olderThan || null,
       skippedRecent: r.skippedRecent,
       skippedFolders: r.skippedFolders,
+      skippedHidden: r.skippedHidden,
+      ...(r.unreadable.length ? { unreadable: r.unreadable } : {}),
       needsSummary: needs,
       sensitive: r.files.filter((f) => f.sensitive).length,
       duplicates: r.duplicates,
@@ -167,6 +178,8 @@ addScanOptions(
       const lines = [`${r.files.length} file(s) in ${contractHome(r.dir)}${r.truncated ? ` (more: --offset ${r.nextOffset})` : ""}`];
       if (r.olderThan) lines.push(`older than ${r.olderThan}: ${r.skippedRecent} recent file(s) left alone`);
       if (r.skippedFolders.length) lines.push(`skipped smart folders: ${r.skippedFolders.join(", ")}`);
+      if (r.skippedHidden) lines.push(`${r.skippedHidden} hidden file(s) or folder(s) left out (--include-hidden, or --include <glob>)`);
+      if (r.unreadable.length) lines.push(`couldn't read: ${r.unreadable.join(", ")}`);
       for (const f of r.files.map((f) => compactEntry(f, r.config.previewChars, dupFiles.has(f.rel)))) {
         const flags = [f.sensitive ? `sensitive: ${f.sensitive} (${f.sensitiveRule})` : "", f.needsSummary ? `summary ${f.needsSummary}` : "", f.duplicate ? "duplicate" : "", f.more ? "more" : ""]
           .filter(Boolean)
@@ -210,9 +223,13 @@ program
   .option("-d, --depth <n>", "how many levels deep to descend", int, 3)
   .option("--samples <n>", "sample file names per directory", int, 5)
   .option("--max-dirs <n>", "cap on directories reported per root", int, 200)
+  .option("--include-hidden", "also survey hidden files and folders")
+  .option("--include <glob>", INCLUDE_HELP, collect, [])
   .action((dirs: string[], o) => {
     const folders = loadFolders();
-    const roots = dirs.map((d) => survey(resolvePath(d), { depth: o.depth, samples: o.samples, maxDirs: o.maxDirs, folders }));
+    const roots = dirs.map((d) =>
+      survey(resolvePath(d), { depth: o.depth, samples: o.samples, maxDirs: o.maxDirs, folders, includeHidden: o.includeHidden, include: o.include }),
+    );
     emit({ roots, folders }, () =>
       roots
         .flatMap((r) => [

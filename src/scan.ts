@@ -4,6 +4,7 @@ import pMap from "p-map";
 import picomatch from "picomatch";
 import { TidyError } from "./errors.js";
 import { extractExcerpt, mimeOf } from "./extract.js";
+import { alwaysSkipped, type HiddenOptions, hiddenFilter } from "./hidden.js";
 import { contractHome, isWithin, resolvePath } from "./paths.js";
 import type { SmartFolder } from "./store/folders.js";
 import { loadAllowances, waiversFor } from "./store/allowlist.js";
@@ -36,7 +37,7 @@ export interface FileEntry {
   needsSummary?: SummaryNeed;
 }
 
-export interface ListOptions {
+export interface ListOptions extends HiddenOptions {
   recursive?: boolean;
   maxFiles: number;
   /** Skip this many matching files first (paging through big directories). */
@@ -100,24 +101,42 @@ export function listFiles(dir: string, opts: ListOptions) {
     .map((f) => ({ name: f.name, abs: resolvePath(f.path) }))
     .filter((f) => !isWithin(dir, f.abs));
   const skippedFolders = new Set<string>();
+  const hiddenIn = hiddenFilter(dir, opts);
   const files: FileEntry[] = [];
+  const unreadable: string[] = [];
   let skippedRecent = 0;
+  let skippedHidden = 0;
   let seen = 0;
   let truncated = false;
   const walk = (current: string) => {
-    const entries = fs.readdirSync(current, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name));
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(current, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name));
+    } catch (err) {
+      // A subdirectory the user can't read (e.g. ~/.Trash without Full Disk Access) shouldn't end the scan.
+      const code = (err as NodeJS.ErrnoException).code;
+      if (current === dir || (code !== "EACCES" && code !== "EPERM")) throw err;
+      unreadable.push(path.relative(dir, current));
+      return;
+    }
+    const hidden = hiddenIn(current);
     for (const e of entries) {
       if (truncated) return;
-      if (e.name.startsWith(".")) continue;
+      if (alwaysSkipped(e.name)) continue;
+      // Only count hidden entries that would otherwise be listed or descended into.
+      const listable = e.isDirectory() ? opts.recursive && !SKIP_DIRS.has(e.name) : e.isFile() && (!matcher || matcher(e.name));
+      if (!listable) continue;
+      if (hidden(e.name)) {
+        skippedHidden++;
+        continue;
+      }
       const full = path.join(current, e.name);
       if (e.isDirectory()) {
-        if (!opts.recursive || SKIP_DIRS.has(e.name)) continue;
         const organized = skip.find((f) => isWithin(full, f.abs));
         if (organized) skippedFolders.add(organized.name);
         else walk(full);
         continue;
       }
-      if (!e.isFile() || (matcher && !matcher(e.name))) continue;
       const st = fs.statSync(full);
       if (opts.before !== undefined && recency(st) > opts.before) {
         skippedRecent++;
@@ -139,6 +158,10 @@ export function listFiles(dir: string, opts: ListOptions) {
     nextOffset: truncated ? (opts.offset ?? 0) + files.length : undefined,
     skippedFolders: [...skippedFolders],
     skippedRecent,
+    /** Hidden files and folders left out (see `includeHidden` and `include`). */
+    skippedHidden,
+    /** Subdirectories that couldn't be read, relative to `dir`. */
+    unreadable,
   };
 }
 
