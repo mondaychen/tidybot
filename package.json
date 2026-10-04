@@ -14,8 +14,7 @@
     "build": "tsc -p tsconfig.build.json && node scripts/copy-cmaps.mjs",
     "dev": "tsx src/cli.ts",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "test:e2e": "vitest run --config test/e2e/vitest.config.ts"
+    "test": "vitest run"
   },
   "engines": {
     "node": ">=20"

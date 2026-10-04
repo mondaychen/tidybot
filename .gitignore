@@ -2,6 +2,6 @@ node_modules
 dist
 *.log
 
-# e2e fixture
-test/e2e/downloads-test.manifest.json
+# e2e fixture and suite, kept out of the repo until they move to their own
+tidybot-e2e/
 .preview/
