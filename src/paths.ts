@@ -44,6 +44,12 @@ export function expandHome(p: string): string {
   return p;
 }
 
+/** For paths stored in settings: keep `~` paths portable, and pin relative paths to the cwd they
+ * were typed in. */
+export function pinPath(p: string): string {
+  return p === "~" || p.startsWith("~/") || path.isAbsolute(p) ? p : path.resolve(p);
+}
+
 /** Expand `~` and make absolute, relative to `base` (default: cwd). */
 export function resolvePath(p: string, base = process.cwd()): string {
   return path.resolve(base, expandHome(p));

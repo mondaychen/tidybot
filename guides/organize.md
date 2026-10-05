@@ -7,6 +7,7 @@ tidybot gathers the facts and performs the moves; a human reviews your plan firs
 1. `tidybot scan [dir]` (add `-r` for subfolders) returns a **compact** view (field names as in `--json` output):
    - `folders`: smart folders (name, path, rule)
    - `rules`, `naming`, `rename`: the user's extra instructions, naming style and rename mode
+   - `trash`: whether you may propose deleting files (`enabled`), and where they'd go
    - `files`: `rel`, type, size, date, and either a cached `summary` or a short `preview`.
      Flags: `more` (longer text available), `needsSummary` ("required" for images,
      "recommended" for long documents and for documents with no text, like scanned PDFs), `sensitive`, `duplicate`.
@@ -21,18 +22,20 @@ tidybot gathers the facts and performs the moves; a human reviews your plan firs
    Images need a summary unless the filename already says what the image is: then propose it
    with `"summarySkipped": "<why the name is enough>"` (e.g. "Passport Photo IMG 1360.JPG").
 4. For every file choose exactly one smart folder **by name**, or `null` when nothing
-   fits. Never invent folders or paths. Optionally propose a new name (see Renaming).
+   fits. Never invent folders or paths. Optionally propose a new name (see Renaming), or
+   propose deleting the file instead (see Deleting).
 5. Submit:
    `tidybot propose --source <dir> --data '{"items":[{"file":"<rel>","folder":"<name>","rename":"<new name or omit>","reason":"<short why>","confidence":0.9}]}'`
    (or pipe the JSON on stdin). This writes a plan; it moves nothing.
 6. Check the plan's items for `warnings` (e.g. `conflict: ... already exists`). Fix them by
    re-proposing those files with a different `rename` using `--append`.
-7. Tell the user about `duplicates` and `sensitive` files separately: tidybot doesn't delete, so
-   suggest which copies they could delete (prefer keeping the one already in a smart folder).
-   Leave extra copies out of the plan unless the user wants them filed.
+7. For `duplicates`, propose deleting the extra copies when deleting is enabled (keep the one
+   already in a smart folder, or else the best-named one). Otherwise tell the user which copies
+   they could delete. Tell the user about `sensitive` files separately.
 8. Show the human `tidybot plan show`; apply their edits with
    `tidybot plan set <file> [folder] [--name <new>] [--keep-name]` / `tidybot plan skip <file>`.
 9. Only after the human approves: `tidybot apply --yes`. Undo: `tidybot undo --last`.
+   Files sent to the system Trash can't be undone by tidybot; the user restores them from the Trash.
 
 ## How to judge
 - The user's `rules` apply to everything; a folder's `rule` outranks its name.
@@ -77,6 +80,16 @@ Detection errs on the side of flagging; `sensitiveRule` says which rule fired
 ## Large directories
 Scan pages through files (`nextOffset`). Propose each page, adding later pages to the same
 plan with `tidybot propose --append`. `--match '*.pdf'` narrows a scan by name.
+
+## Deleting
+Deleted files go to the trash, never straight away: the system Trash / Recycle Bin, or the
+user's `trashDir` folder. Propose `{"file": "<rel>", "delete": true, "reason": "<why>"}` (no folder).
+- Only when `trash.enabled` is true in the scan. If it's false, say why (`trash.reason`) instead.
+- Only for exact `duplicates` (never the last copy), or files the user's `rules` say to delete.
+  Don't delete a file just because it looks old or unimportant.
+- Don't delete `sensitive` files unless the user asks.
+- The user can switch an item with `tidybot plan set <file> --delete`, or back with
+  `tidybot plan set <file> <folder>`.
 
 ## Hidden files
 Scans leave out hidden files and folders (dotfiles, and whatever the OS marks hidden); `skippedHidden`

@@ -170,6 +170,14 @@ export class FileIndex {
     this.dirty = true;
   }
 
+  /** The file is gone (sent to the system Trash). */
+  forget(file: string): void {
+    if (file in this.entries) {
+      delete this.entries[file];
+      this.dirty = true;
+    }
+  }
+
   /** Current, verified locations of files with this hash. */
   pathsFor(hash: string): string[] {
     return Object.entries(this.entries)

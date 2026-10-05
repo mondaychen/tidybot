@@ -1,17 +1,12 @@
 import path from "node:path";
 import { z } from "zod";
 import { TidyError } from "../errors.js";
-import { resolvePath, settingsDir } from "../paths.js";
+import { pinPath, resolvePath, settingsDir } from "../paths.js";
 import { readYaml, writeYaml } from "./io.js";
-
-/** Keep `~` paths portable; pin relative paths to the cwd they were typed in. */
-function normalizeFolderPath(p: string): string {
-  return p === "~" || p.startsWith("~/") || path.isAbsolute(p) ? p : path.resolve(p);
-}
 
 export const SmartFolderSchema = z.object({
   name: z.string().trim().min(1, "name is required"),
-  path: z.string().trim().min(1, "path is required").transform(normalizeFolderPath),
+  path: z.string().trim().min(1, "path is required").transform(pinPath),
   rule: z.string().trim().default(""),
 });
 export type SmartFolder = z.infer<typeof SmartFolderSchema>;

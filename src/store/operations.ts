@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { TidyError } from "../errors.js";
-import { type FileIdentity, type PreparedMove, hasSpelling, identity, moveFile, onDiskPath, place, sameInode, sameStamp } from "../file-move.js";
+import { type FileIdentity, type PreparedMove, hasSpelling, identity, matches, moveFile, onDiskPath, place, sameInode, sameStamp } from "../file-move.js";
 import { pathKey } from "../names.js";
 import { tidybotHome } from "../paths.js";
 import { type HistoryRecord, record } from "./history.js";
@@ -12,9 +12,11 @@ import { type Plan, loadPlan, savePlan } from "./plans.js";
 import { FileIndex } from "./summaries.js";
 
 type MoveRecord = Extract<HistoryRecord, { kind: "move" | "undo" }>;
+type TrashRecord = Extract<HistoryRecord, { kind: "trash" }>;
 interface Operation extends PreparedMove {
-  entry: MoveRecord;
+  entry: MoveRecord | TrashRecord;
   from: string;
+  /** "" for a file sent to the system Trash. */
   to: string;
   source: FileIdentity;
 }
@@ -80,6 +82,7 @@ export function withMoveLock<T>(fn: () => T): T {
   const name = `${process.pid}-${randomUUID()}.lock`;
   const claim = path.join(dir, name);
   fs.closeSync(fs.openSync(claim, "wx", 0o600));
+  let held = false; // An async `fn` keeps the claim until it settles.
   try {
     for (const other of fs.readdirSync(dir)) {
       const pid = Number(CLAIM.exec(other)?.[1]);
@@ -90,9 +93,14 @@ export function withMoveLock<T>(fn: () => T): T {
       }
       fs.rmSync(file, { force: true });
     }
-    return fn();
+    const result = fn();
+    if (result instanceof Promise) {
+      held = true;
+      return result.finally(() => fs.unlinkSync(claim)) as T;
+    }
+    return result;
   } finally {
-    fs.unlinkSync(claim);
+    if (!held) fs.unlinkSync(claim);
   }
 }
 
@@ -111,12 +119,13 @@ export class MoveBatch {
 
   /** Call once the operation's history record is written. */
   complete(op: Operation): void {
-    this.index.moved(op.from, op.to, op.source, op.destination ?? op.source);
     const { entry } = op;
-    if (entry.kind === "move" && entry.planId) {
+    if (entry.kind === "trash") this.index.forget(op.from);
+    else this.index.moved(op.from, op.to, op.source, op.destination ?? op.source);
+    if (entry.kind !== "undo" && entry.planId) {
       const item = this.plan(entry.planId)?.items.find((i) => i.file === entry.from);
       if (item) {
-        item.status = "moved";
+        item.status = entry.kind === "trash" || entry.trash ? "trashed" : "moved";
         item.operationId = entry.id;
         item.note = undefined;
       }
@@ -169,6 +178,8 @@ function stuck(op: Operation, journal: string, cause?: unknown): TidyError {
 /** Work out how far an interrupted operation got. An incomplete one is rolled back, one
  * whose file is in place is "complete", and anything ambiguous is left for the user. */
 function settle(op: Operation, journal: string): "complete" | "rolled back" {
+  // Nothing is placed anywhere tidybot can see: the file either left for the Trash or it didn't.
+  if (op.entry.kind === "trash") return sameInode(op.from, op.source) || sameStamp(op.from, op.source) ? "rolled back" : "complete";
   try {
     // In a case-only rename both names alias one directory entry, and only the exact
     // spelling tells them apart. Otherwise, any spelling the filesystem accepts will do.
@@ -262,6 +273,33 @@ export function recordedMove(from: string, to: string, entry: MoveRecord, batch:
       throw new TidyError(`Move completed but history could not be saved. Recovery record: ${file}`, "recovery_required");
     }
     throw err;
+  }
+  batch.complete(op);
+}
+
+/** Send a file to the system Trash, journaled first. The Trash can't be undone from here, so
+ * once the file has gone it stays gone: if history can't be written, recovery records it later. */
+export async function recordedTrash(from: string, entry: TrashRecord, batch: MoveBatch, send: (file: string) => Promise<void>): Promise<void> {
+  const op: Operation = { entry, from: onDiskPath(from), to: "", source: identity(from) };
+  const file = operationFile(entry.id);
+  writeJson(file, op);
+  const inPlace = () => sameInode(op.from, op.source) || sameStamp(op.from, op.source);
+  try {
+    if (!matches(op.from, op.source)) throw new TidyError(`Source changed before it could be deleted: ${op.from}`, "conflict");
+    await send(op.from);
+    if (inPlace()) throw new TidyError("the file is still in place after moving it to the Trash");
+  } catch (err) {
+    if (inPlace()) {
+      retire(op);
+      throw err;
+    }
+    // The file left despite the error, so record that it was deleted.
+  }
+  try {
+    record(entry);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new TidyError(`Moved to the Trash but history could not be saved (${message}). Recovery record: ${file}`, "recovery_required");
   }
   batch.complete(op);
 }

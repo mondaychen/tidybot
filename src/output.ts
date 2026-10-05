@@ -36,6 +36,7 @@ export function fail(err: unknown): never {
 const STATUS_MARK: Record<PlanItem["status"], string> = {
   pending: "·",
   moved: "✓",
+  trashed: "✓",
   skipped: "-",
   invalid: "!",
   failed: "✗",
@@ -53,7 +54,9 @@ export function renderPlan(plan: Plan): string {
   for (const i of plan.items) {
     const rel = path.relative(plan.source, i.file);
     const inPlace = i.destination === path.dirname(i.file) && i.folder === null;
-    const dest = !i.destination
+    const dest = i.delete
+      ? "(delete: to the trash)"
+      : !i.destination
       ? (i.folder ?? "—")
       : inPlace
         ? "(rename in place)"
@@ -93,7 +96,8 @@ export function renderMoves(moves: MoveEntry[]): string {
   return moves
     .map((m) => {
       const state = m.state === "active" ? "" : `  (${m.state})`;
-      return `${m.id}  ${relativeTime(m.at).padEnd(14)} ${contractHome(m.from)}  →  ${contractHome(path.dirname(m.to))}${state}`;
+      const to = m.to === null ? "system Trash" : `${contractHome(path.dirname(m.to))}${m.trash ? " (trash folder)" : ""}`;
+      return `${m.id}  ${relativeTime(m.at).padEnd(14)} ${contractHome(m.from)}  →  ${to}${state}`;
     })
     .join("\n");
 }

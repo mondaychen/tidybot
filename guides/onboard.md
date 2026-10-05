@@ -24,6 +24,14 @@ this person already organizes files. Save only what they approve.
    move anything with 'draft' in the name", "tax documents go to Tax even if they are
    bills"). Save each with `tidybot rules add "<rule>"`.
 
+9. Ask whether tidybot may propose **deleting** files, such as extra copies of duplicates. Deleted
+   files go to the trash, and nothing is deleted until they approve a plan.
+   - If they'd rather not: `tidybot config set allowDelete false`.
+   - If they want deleted files kept in a folder of their own instead of the system Trash:
+     `tidybot config set trashDir <dir>`. Files there can be restored with `tidybot undo`.
+   - On Linux, deleting stays off until they pick a folder (`tidybot status` shows it): ask
+     which one, then `tidybot config set trashDir <dir>`.
+
 ## Writing good folder rules
 - One or two sentences describing what belongs (and, if useful, what does not).
 - Mention strong signals: senders, keywords, file types, filename patterns.

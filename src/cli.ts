@@ -32,6 +32,7 @@ import { getSummaries, listSummaries, saveSummaries } from "./summarize.js";
 import { survey } from "./survey.js";
 import { allowFiles } from "./allow.js";
 import { RULES } from "./sensitive.js";
+import { type TrashStatus, trashStatus } from "./trash.js";
 import { loadAllowances, removeAllowance } from "./store/allowlist.js";
 
 const int = (v: string) => {
@@ -39,6 +40,8 @@ const int = (v: string) => {
   if (Number.isNaN(n)) throw new TidyError(`Expected a number, got "${v}"`);
   return n;
 };
+
+const describeTrash = (t: TrashStatus) => (!t.enabled ? `off: ${t.reason}` : t.target === "system" ? "to the system Trash / Recycle Bin" : `to ${t.target}`);
 
 /** For repeatable options. */
 const collect = (value: string, previous: string[]) => [...previous, value];
@@ -129,7 +132,8 @@ async function runScan(dirArg: string | undefined, o: Record<string, unknown>, e
     before: olderThan ? Date.now() - parseAge(olderThan) : undefined,
     excerptChars: excerptChars ?? config.excerptChars,
     allowRules: config.allowRules,
-    skipFolders: skipOrganized ? folders : [],
+    // Deleted files are out of the way, never something to organize.
+    skipFolders: [...(skipOrganized ? folders : []), ...(config.trashDir ? [{ name: "trash folder", path: config.trashDir, rule: "" }] : [])],
     includeHidden: !!o.includeHidden,
     include: o.include as string[],
     noHash: o.content === false,
@@ -171,6 +175,7 @@ addScanOptions(
       rename: r.config.rename,
       naming: r.config.naming,
       rules: r.config.rules,
+      trash: trashStatus(r.config),
       folders: r.folders,
       files: o.full ? r.files : r.files.map((f) => compactEntry(f, r.config.previewChars, dupFiles.has(f.rel))),
     };
@@ -195,6 +200,7 @@ addScanOptions(
       else lines.push("", "Smart folders:", ...r.folders.map((f) => `  ${f.name} → ${f.path}${f.rule ? `  (${f.rule})` : ""}`));
       if (r.config.rules.length) lines.push("", "Rules:", ...r.config.rules.map((x) => `  - ${x}`));
       lines.push("", `Rename: ${r.config.rename}${r.config.naming ? `. Naming: ${r.config.naming}` : ""}`);
+      lines.push(`Deleting: ${describeTrash(trashStatus(r.config))}`);
       return lines.join("\n");
     });
   });
@@ -427,7 +433,7 @@ sensitive
 
 // ---------------------------------------------------------------- plans
 
-const plan = program.command("plan").description("review and edit proposed moves");
+const plan = program.command("plan").description("review and edit proposed moves and deletions");
 
 plan
   .command("list")
@@ -467,15 +473,13 @@ plan
   .option("--path <dir>", "custom destination directory instead of a smart folder")
   .option("--name <newName>", "rename the file (extension is kept)")
   .option("--keep-name", "cancel a proposed rename")
+  .option("--delete", "delete the file instead (it goes to the trash)")
   .option("-p, --plan <id>", "plan id (default: latest open)")
   .action((file: string, folder: string | undefined, o) => {
     const p = loadPlan(o.plan);
-    const item = retarget(p, file, { folder, path: o.path, name: o.keepName ? null : o.name });
-    emit({ ok: true, planId: p.id, item }, () =>
-      [`${file} → ${contractHome(path.join(item.destination ?? "", item.newName ?? path.basename(item.file)))}`, ...(item.warnings ?? []).map((w) => `⚠ ${w}`)].join(
-        "\n",
-      ),
-    );
+    const item = retarget(p, file, { folder, path: o.path, name: o.keepName ? null : o.name, delete: o.delete });
+    const to = item.delete ? "trash" : contractHome(path.join(item.destination ?? "", item.newName ?? path.basename(item.file)));
+    emit({ ok: true, planId: p.id, item }, () => [`${file} → ${to}`, ...(item.warnings ?? []).map((w) => `⚠ ${w}`)].join("\n"));
   });
 
 plan
@@ -504,7 +508,7 @@ plan
 
 program
   .command("apply")
-  .description("move (and rename) the pending files of a plan (default: latest open). Asks for confirmation.")
+  .description("move (and rename) or delete the pending files of a plan (default: latest open). Asks for confirmation.")
   .argument("[planId]")
   .option("-n, --dry-run", "show what would move")
   .option("-y, --yes", "don't ask for confirmation (required when not on a TTY)")
@@ -513,30 +517,36 @@ program
   )
   .action(async (id: string | undefined, o) => {
     const p = loadPlan(id);
-    const preview = applyPlan(p, { dryRun: true });
-    const count = preview.wouldMove?.length ?? 0;
-    if (o.dryRun || count === 0) {
-      emit({ ok: true, dryRun: true, planId: p.id, wouldMove: preview.wouldMove }, () =>
-        count === 0 ? "Nothing pending in this plan." : renderPlan(p),
+    const preview = await applyPlan(p, { dryRun: true });
+    const moves = preview.wouldMove?.length ?? 0;
+    const deletions = preview.wouldTrash?.length ?? 0;
+    if (o.dryRun || moves + deletions === 0) {
+      emit({ ok: true, dryRun: true, planId: p.id, wouldMove: preview.wouldMove, wouldTrash: preview.wouldTrash }, () =>
+        moves + deletions === 0 ? "Nothing pending in this plan." : renderPlan(p),
       );
       return;
     }
     if (!o.yes) {
       if (!process.stdin.isTTY || isJsonMode()) {
-        throw new TidyError("Refusing to move files without confirmation. Re-run with --yes once the plan is approved.", "needs_confirmation");
+        throw new TidyError("Refusing to move or delete files without confirmation. Re-run with --yes once the plan is approved.", "needs_confirmation");
       }
       process.stderr.write(`${renderPlan(p)}\n\n`);
-      if (!(await confirm(`Move ${count} file(s)?`))) {
+      const what = [moves ? `move ${moves} file(s)` : "", deletions ? `delete ${deletions} file(s) (${describeTrash(trashStatus(loadConfig()))})` : ""]
+        .filter(Boolean)
+        .join(" and ");
+      if (!(await confirm(`${what.charAt(0).toUpperCase()}${what.slice(1)}?`))) {
         process.stderr.write("Aborted.\n");
         return;
       }
     }
-    const result = applyPlan(p, { onConflict: o.onConflict as ConflictPolicy });
+    const result = await applyPlan(p, { onConflict: o.onConflict as ConflictPolicy });
+    const toSystem = result.trashed.filter((t) => t.to === null).length;
     emit({ ok: result.failed.length === 0, planId: p.id, ...result }, () =>
       [
         `Moved ${result.moved.length} file(s).`,
+        result.trashed.length ? `Deleted ${result.trashed.length} file(s)${toSystem ? `; ${toSystem} went to the system Trash, restore those from there` : ""}.` : "",
         ...result.failed.map((f) => `  ✗ ${contractHome(f.file)}: ${f.error}`),
-        result.moved.length ? `Undo with: tidybot undo --plan ${p.id}` : "",
+        result.moved.length || result.trashed.length > toSystem ? `Undo with: tidybot undo --plan ${p.id}` : "",
       ]
         .filter(Boolean)
         .join("\n"),
@@ -584,7 +594,7 @@ program
     if (o.abandon) {
       const dropped = (o.abandon as string[]).map(abandonOperation);
       emit({ ok: true, abandoned: dropped }, () =>
-        dropped.map((d) => `Abandoned ${d.id}: ${contractHome(d.from)} → ${contractHome(d.to)}${d.backup ? `\n  a copy may be held at ${contractHome(d.backup)}` : ""}`).join("\n"),
+        dropped.map((d) => `Abandoned ${d.id}: ${contractHome(d.from)} → ${d.to ? contractHome(d.to) : "system Trash"}${d.backup ? `\n  a copy may be held at ${contractHome(d.backup)}` : ""}`).join("\n"),
       );
       return;
     }
@@ -793,6 +803,7 @@ program
       folders: loadFolders().length,
       openPlans: open.map((p) => p.id),
       activeMoves: loadMoves().filter((m) => m.state === "active").length,
+      trash: trashStatus(c),
     };
     emit(data, () =>
       [
@@ -802,6 +813,7 @@ program
         `folders:      ${data.folders}${data.folders === 0 ? "  (run `tidybot guide onboard`)" : ""}`,
         `rename:       ${c.rename}${c.naming ? `  naming: ${c.naming}` : ""}`,
         `rules:        ${c.rules.length}`,
+        `deleting:     ${describeTrash(data.trash)}`,
         `open plans:   ${data.openPlans.join(", ") || "none"}`,
         `active moves: ${data.activeMoves}`,
       ].join("\n"),

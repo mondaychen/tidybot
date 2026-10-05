@@ -44,7 +44,7 @@ Requires Node 20+.
 | `summary todo [dir] [-r]` | Files that still need a summary |
 | `summary save [--data] [--model]` | Stores agent-written summaries: `[{file, summary, keywords[]}]` |
 | `summary get <files...>` / `summary list` | Reads summaries back (`list` is for semantic search on the agent side) |
-| `propose [--data] [--append] [--allow-unsummarized]` | Saves `{file, folder, rename?, reason, confidence}` choices as a plan. Moves nothing |
+| `propose [--data] [--append] [--allow-unsummarized]` | Saves `{file, folder, rename?, reason, confidence}` choices as a plan, or `{file, delete: true, reason}` to delete a file. Moves nothing |
 | `survey <dirs...> [--include-hidden] [--include <glob>]` | Summarizes existing folder trees, for onboarding. Skips hidden folders |
 | `folders import [--data] [--dry-run]` | Adds or updates many smart folders at once |
 
@@ -52,14 +52,14 @@ Requires Node 20+.
 
 | Command | What it does |
 |---|---|
-| `plan list \| show \| set \| skip \| discard` | Review and edit. `plan set <file> [folder] [--path d] [--name n] [--keep-name]` |
-| `apply [plan] [--dry-run] [--yes] [--on-conflict rename]` | Runs moves and renames. Asks for confirmation |
+| `plan list \| show \| set \| skip \| discard` | Review and edit. `plan set <file> [folder] [--path d] [--name n] [--keep-name] [--delete]` |
+| `apply [plan] [--dry-run] [--yes] [--on-conflict rename]` | Runs moves, renames and deletions. Asks for confirmation |
 | `history`, `undo <ids> \| --plan \| --last`, `forget <ids>` | Move history and undo |
 | `recover [--abandon <ids>]` | Finishes or rolls back interrupted moves (also runs automatically). `--abandon` drops one it can't resolve, after you've checked its files |
 | `find <words...>` | Searches files by summary, keywords and name |
 | `folders list \| add \| edit \| rm` | Smart folders |
 | `rules`, `rules add \| rm`, `rules naming [style]` | General rules and naming style for the agent |
-| `config get \| set \| unset` | `source`, `excerptChars`, `previewChars`, `maxFiles`, `olderThan`, `skipOrganized`, `rename` (auto/always/off), `naming`, `historyMaxMoves`, `summariesMax` (0 = unlimited) |
+| `config get \| set \| unset` | `source`, `excerptChars`, `previewChars`, `maxFiles`, `olderThan`, `skipOrganized`, `rename` (auto/always/off), `naming`, `historyMaxMoves`, `summariesMax` (0 = unlimited), `allowDelete`, `trashDir` |
 | `compact` | Applies `historyMaxMoves` / `summariesMax` now and drops superseded summaries (also runs automatically after writes) |
 | `init [dir] [--copy-global]` | Creates per-project settings (see below) |
 | `status` | Active scope, counts, open plans |
@@ -73,6 +73,18 @@ unhelpful or when it would collide with a file already at the destination. `prop
 as `warnings` so the agent can fix them before you review. The extension is always kept, and names
 are sanitized to a single path segment. Your naming style (`tidybot rules naming "..."`) and general
 rules (`tidybot rules add "..."`) are included in every `scan` so the agent follows them.
+
+## Deleting
+
+The agent can propose deleting files, such as the extra copies of a duplicate or files your rules say
+to delete. Nothing is deleted until you approve the plan, and nothing is deleted outright:
+
+- By default deleted files go to the **system Trash / Recycle Bin**. Restore them from there; tidybot
+  can't undo that.
+- `config set trashDir <dir>` sends them to a folder of your choice instead, with an ordinary move that
+  `tidybot undo` can reverse. Scans never list that folder.
+- On **Linux**, deleting is off until you set `trashDir`.
+- `config set allowDelete false` turns deleting off.
 
 ## Scanning big folders
 

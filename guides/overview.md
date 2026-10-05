@@ -23,7 +23,8 @@ I/O and caching, and the user reviews before anything moves. Output is plain tex
      add `--older-than 14d`.
    - For files the preview doesn't settle, run `tidybot inspect <rel>... --source <dir>`. Don't use `scan --full`.
    - Pick one smart folder **by name** for each file, or `null`. Add a `rename` when the name is unhelpful
-     or conflicts, following `naming`.
+     or conflicts, following `naming`. Extra copies of duplicates (and files the user's rules say to
+     delete) can be proposed as `{"file": "<rel>", "delete": true, "reason": "..."}` when `trash.enabled`.
    - `tidybot propose --source <dir> --data '{"items":[{"file":"<rel>","folder":"<name>","rename":"<optional>","reason":"...","confidence":0.8}]}'`
    - Fix any `warnings` (name conflicts) by re-proposing with `--append` and a different `rename`.
    - Show the user `tidybot plan show` and apply their edits with `tidybot plan set <file> [folder] [--name n] [--keep-name]`
@@ -32,8 +33,9 @@ I/O and caching, and the user reviews before anything moves. Output is plain tex
    `tidybot apply --yes`. `tidybot undo --last` reverts the batch, original names included.
    If tidybot reports an interrupted move it can't recover safely, show the user both paths. Run
    `tidybot recover --abandon <id>` only once they confirm the files are where they want them.
-5. **Duplicates and sensitive files:** tidybot never deletes. Tell the user which copies they could delete
-   (keep the one already filed), and suggest a password manager for `sensitive` files.
+5. **Duplicates and sensitive files:** deleted files always go to the trash (system Trash, or the user's
+   `trashDir`). Keep the copy already filed. If deleting is off, tell the user which copies they could
+   delete instead. Suggest a password manager for `sensitive` files.
    - Harmless files flagged by a **filename** rule (`sensitiveRule: name.*`) you may allow yourself:
      `tidybot sensitive allow <rel> --source <dir> --reason "..."`. Tell the user which ones.
    - **Content** matches (`content.*`) need the user's OK (`--content`). Turn a whole rule off

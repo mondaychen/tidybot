@@ -18,6 +18,15 @@ export function sandbox(): string {
   return root;
 }
 
+/** Pretend to run on another OS until the current test finishes. */
+export function onPlatform(platform: NodeJS.Platform): void {
+  const original = Object.getOwnPropertyDescriptor(process, "platform") as PropertyDescriptor;
+  Object.defineProperty(process, "platform", { value: platform });
+  onTestFinished(() => {
+    Object.defineProperty(process, "platform", original);
+  });
+}
+
 export function write(file: string, content: string | Buffer = ""): string {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, content);

@@ -23,7 +23,7 @@ beforeEach(() => {
 
 async function moveFiles(names: string[]) {
   for (const n of names) write(path.join(dl, n), n);
-  applyPlan(await propose(names.map((file) => ({ file, folder: "Docs" })), { source: dl }));
+  await applyPlan(await propose(names.map((file) => ({ file, folder: "Docs" })), { source: dl }));
 }
 
 describe("history retention", () => {

@@ -12,18 +12,25 @@ import { type Config, loadConfig } from "./store/config.js";
 import { findFolder, loadFolders, type SmartFolder } from "./store/folders.js";
 import { type Plan, type PlanItem, newPlanId, planState, savePlan, targetPath } from "./store/plans.js";
 import { FileIndex, loadSummaries } from "./store/summaries.js";
+import { type TrashStatus, trashStatus } from "./trash.js";
 
 /** What an agent sends to `tidybot propose`. */
-export const ProposalSchema = z.object({
-  file: z.string().min(1),
-  folder: z.string().nullable(),
-  /** New filename (no directories). Extension is kept if omitted. */
-  rename: z.string().nullish(),
-  /** Why an image can be filed without a summary (e.g. its name is already descriptive). */
-  summarySkipped: z.string().trim().min(1).optional(),
-  reason: z.string().optional(),
-  confidence: z.number().min(0).max(1).optional(),
-});
+export const ProposalSchema = z
+  .object({
+    file: z.string().min(1),
+    /** Smart folder name, or null when none fits. Omitted when deleting. */
+    folder: z.string().nullable().optional(),
+    /** Delete the file instead: it goes to the trash. */
+    delete: z.boolean().optional(),
+    /** New filename (no directories). Extension is kept if omitted. */
+    rename: z.string().nullish(),
+    /** Why an image can be filed without a summary (e.g. its name is already descriptive). */
+    summarySkipped: z.string().trim().min(1).optional(),
+    reason: z.string().optional(),
+    confidence: z.number().min(0).max(1).optional(),
+  })
+  .refine((p) => p.delete || p.folder !== undefined, { message: "each item needs `folder` (null when none fits), or `delete: true`" })
+  .refine((p) => !p.delete || !p.folder, { message: "an item to delete can't also have a folder" });
 export const ProposeInputSchema = z.union([
   z.array(ProposalSchema),
   z.object({ source: z.string().optional(), items: z.array(ProposalSchema) }),
@@ -53,6 +60,7 @@ export function sanitizeName(proposed: string, original: string): string | undef
 
 interface ProposeContext {
   source: string;
+  trash: TrashStatus;
   folders: SmartFolder[];
   config: Pick<Config, "rename">;
   requireImageSummaries: boolean;
@@ -63,7 +71,7 @@ interface ProposeContext {
 function toItem(p: Proposal, ctx: ProposeContext): PlanItem {
   // On case-insensitive filesystems, record the name as stored rather than as typed.
   const file = onDiskPath(resolvePath(p.file, ctx.source));
-  const item: PlanItem = { file, folder: p.folder, destination: null, reason: p.reason, confidence: p.confidence, status: "pending" };
+  const item: PlanItem = { file, folder: p.folder ?? null, destination: null, reason: p.reason, confidence: p.confidence, status: "pending" };
   const invalid = (note: string): PlanItem => ({ ...item, status: "invalid", note });
 
   if (!fs.existsSync(file) || !fs.statSync(file).isFile()) return invalid("file not found");
@@ -72,6 +80,10 @@ function toItem(p: Proposal, ctx: ProposeContext): PlanItem {
       return invalid('image has no summary yet; summarize it (tidybot guide summarize) or give "summarySkipped": "<reason>" if the name says enough');
     }
     item.summarySkipped = p.summarySkipped;
+  }
+  if (p.delete) {
+    if (!ctx.trash.enabled) return invalid(ctx.trash.reason);
+    return { ...item, delete: true, ...(p.rename ? { warnings: ["rename ignored: the file is being deleted"] } : {}) };
   }
   if (p.rename) {
     if (ctx.config.rename === "off") item.warnings = ["rename ignored: renaming is off (config rename=off)"];
@@ -83,7 +95,7 @@ function toItem(p: Proposal, ctx: ProposeContext): PlanItem {
       }
     }
   }
-  if (p.folder === null) {
+  if (p.folder == null) {
     if (!item.newName) return { ...item, status: "skipped", note: "agent found no matching smart folder" };
     item.destination = path.dirname(file); // rename in place
     return item;
@@ -138,6 +150,7 @@ export async function propose(
   const summaries = await loadSummaries();
   const ctx: ProposeContext = {
     source,
+    trash: trashStatus(config),
     folders,
     config,
     requireImageSummaries: !opts.allowUnsummarized,
@@ -153,7 +166,7 @@ export async function propose(
     const item = toItem(p, ctx);
     const idx = plan.items.findIndex((i) => i.file === item.file);
     if (idx < 0) plan.items.push(item);
-    else if (plan.items[idx]?.status === "moved") continue; // never rewrite history
+    else if (isDone(plan.items[idx])) continue; // never rewrite history
     else plan.items[idx] = item;
   }
   refreshWarnings(plan);
@@ -161,6 +174,8 @@ export async function propose(
   savePlan(plan);
   return plan;
 }
+
+const isDone = (item: PlanItem | undefined) => item?.status === "moved" || item?.status === "trashed";
 
 export function findItem(plan: Plan, file: string): PlanItem {
   const abs = resolvePath(file, plan.source);
@@ -174,16 +189,27 @@ export function findItem(plan: Plan, file: string): PlanItem {
     item = bySuffix[0];
   }
   if (!item) throw new TidyError(`File "${file}" is not in plan ${plan.id}`, "not_found");
-  if (item.status === "moved") throw new TidyError(`"${file}" was already moved; use \`tidybot undo\` instead.`);
+  if (isDone(item)) throw new TidyError(`"${file}" was already ${item.status}; use \`tidybot undo\` instead.`);
   return item;
 }
 
 /**
- * Human override: point an item at another smart folder or any directory, and/or change its new name.
- * `name: null` keeps the original filename.
+ * Human override: point an item at another smart folder or any directory, and/or change its new name,
+ * or mark it for deletion. `name: null` keeps the original filename.
  */
-export function retarget(plan: Plan, file: string, target: { folder?: string; path?: string; name?: string | null }): PlanItem {
+export function retarget(plan: Plan, file: string, target: { folder?: string; path?: string; name?: string | null; delete?: boolean }): PlanItem {
   const item = findItem(plan, file);
+  if (target.delete) {
+    if (target.folder || target.path || target.name) throw new TidyError("A file to delete has no destination or new name.", "invalid_input");
+    const trash = trashStatus(loadConfig());
+    if (!trash.enabled) throw new TidyError(trash.reason, "trash_disabled");
+    Object.assign(item, { delete: true, folder: null, destination: null, newName: undefined, status: "pending", note: "edited by user" });
+    refreshWarnings(plan);
+    savePlan(plan);
+    return item;
+  }
+  if (item.delete && !target.folder && !target.path) throw new TidyError("This file is set to be deleted. Give a smart folder or --path to move it instead.");
+  item.delete = undefined;
   if (target.folder) {
     const folder = findFolder(loadFolders(), target.folder);
     if (!folder) throw new TidyError(`No smart folder named "${target.folder}"`, "not_found");
@@ -193,7 +219,7 @@ export function retarget(plan: Plan, file: string, target: { folder?: string; pa
     item.folder = null;
     item.destination = resolvePath(target.path);
   } else if (target.name === undefined) {
-    throw new TidyError("Give a smart folder name, --path, --name or --keep-name.");
+    throw new TidyError("Give a smart folder name, --path, --name, --keep-name or --delete.");
   }
   if (target.name === null) item.newName = undefined;
   else if (target.name !== undefined) item.newName = sanitizeName(target.name, item.file);

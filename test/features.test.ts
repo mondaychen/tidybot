@@ -34,7 +34,7 @@ describe("smart rename", () => {
     write(path.join(dl, "3f2a9c1e.pdf"), "x");
     const plan = await propose([{ file: "3f2a9c1e.pdf", folder: "Legal", rename: "2023-05-01 I-485 receipt notice" }], { source: dl });
     expect(plan.items[0]?.newName).toBe("2023-05-01 I-485 receipt notice.pdf");
-    applyPlan(plan);
+    await applyPlan(plan);
     expect(fs.existsSync(path.join(root, "docs/legal/2023-05-01 I-485 receipt notice.pdf"))).toBe(true);
     undoMoves(selectMoves({ last: true }));
     expect(fs.existsSync(path.join(dl, "3f2a9c1e.pdf"))).toBe(true);
@@ -44,7 +44,7 @@ describe("smart rename", () => {
     write(path.join(dl, "scan0001.txt"), "x");
     const plan = await propose([{ file: "scan0001.txt", folder: null, rename: "lease" }], { source: dl });
     expect(plan.items[0]?.status).toBe("pending");
-    applyPlan(plan);
+    await applyPlan(plan);
     expect(fs.existsSync(path.join(dl, "lease.txt"))).toBe(true);
   });
 
@@ -155,7 +155,7 @@ describe("summaries", () => {
     await saveSummaries([{ file: img, summary: "Photo of a Costco receipt dated 2026-03-02", keywords: ["Receipt", "costco"] }], { base: dl, model: "haiku" });
     const plan = await propose([{ file: "IMG_1234.jpg", folder: "Photos", rename: "2026-03-02 costco receipt" }], { source: dl });
     expect(plan.items[0]?.status).toBe("pending");
-    applyPlan(plan);
+    await applyPlan(plan);
 
     const hits = await findSummaries("costco receipt", { limit: 5 });
     expect(hits[0]?.paths).toEqual([path.join(root, "docs/photos/2026-03-02 costco receipt.jpg")]);

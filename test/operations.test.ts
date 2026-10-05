@@ -62,7 +62,7 @@ function interrupt(at: CrashPoint, opts: { undo?: boolean; crossDevice?: boolean
       unlink(file);
       if (file === source && at === "after-unlink") process.exit(77);
     };
-    ${opts.undo ? `undoMoves(selectMoves({planId: ${JSON.stringify(plan.id)}}));` : `applyPlan(loadPlan(${JSON.stringify(plan.id)}));`}
+    ${opts.undo ? `undoMoves(selectMoves({planId: ${JSON.stringify(plan.id)}}));` : `await applyPlan(loadPlan(${JSON.stringify(plan.id)}));`}
   `;
   const result = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script], {
     cwd: repo, env: process.env, encoding: "utf8", timeout: 10_000,
@@ -83,7 +83,7 @@ const journals = () => {
 };
 
 describe("move journal recovery", () => {
-  it("rolls back an interrupted destination link and permits retry", () => {
+  it("rolls back an interrupted destination link and permits retry", async () => {
     interrupt("before-unlink");
     expect(fs.existsSync(from)).toBe(true);
     expect(fs.existsSync(to)).toBe(true);
@@ -91,7 +91,7 @@ describe("move journal recovery", () => {
     expect(fs.readFileSync(from, "utf8")).toBe("original contents");
     expect(fs.existsSync(to)).toBe(false);
     expect(loadMoves()).toEqual([]);
-    expect(applyPlan(loadPlan(plan.id)).moved).toHaveLength(1);
+    expect((await applyPlan(loadPlan(plan.id))).moved).toHaveLength(1);
   });
 
   it.each([false, true])("recovers a completed move after source removal (crossDevice=%s)", (crossDevice) => {
@@ -116,8 +116,8 @@ describe("move journal recovery", () => {
     expect(fs.readdirSync(path.join(root, "home", "operations"))).toEqual([]);
   });
 
-  it("recovers an interrupted undo", () => {
-    expect(applyPlan(plan).moved).toHaveLength(1);
+  it("recovers an interrupted undo", async () => {
+    expect((await applyPlan(plan)).moved).toHaveLength(1);
     interrupt("after-unlink", { undo: true });
     recoverMoves();
     expect(loadMoves()[0]?.state).toBe("undone");
@@ -143,22 +143,22 @@ describe("move journal recovery", () => {
     expect(fs.readdirSync(path.join(root, "home", "operations"))).toHaveLength(1);
   });
 
-  it("refuses overlapping moves while another writer holds the lock", () => {
-    withMoveLock(() => expect(() => applyPlan(plan)).toThrow(/Another move/));
+  it("refuses overlapping moves while another writer holds the lock", async () => {
+    await withMoveLock(() => expect(applyPlan(plan)).rejects.toThrow(/Another move/));
     expect(fs.existsSync(from)).toBe(true);
-    expect(applyPlan(plan).moved).toHaveLength(1);
+    expect((await applyPlan(plan)).moved).toHaveLength(1);
   });
 });
 
 describe("recovery after interruptions at other points", () => {
-  it("removes a destination link created just before a crash", () => {
+  it("removes a destination link created just before a crash", async () => {
     interrupt("after-link");
     expect(fs.existsSync(to)).toBe(true);
     recoverMoves();
     expect(fs.readFileSync(from, "utf8")).toBe("original contents");
     expect(fs.existsSync(to)).toBe(false);
     expect(journals()).toEqual([]);
-    expect(applyPlan(loadPlan(plan.id)).moved).toHaveLength(1);
+    expect((await applyPlan(loadPlan(plan.id))).moved).toHaveLength(1);
   });
 
   it("completes a move made by rename on a filesystem without hard links", () => {
@@ -172,13 +172,13 @@ describe("recovery after interruptions at other points", () => {
     expect(fs.readFileSync(from, "utf8")).toBe("original contents");
   });
 
-  it("fails a move cleanly when the source is written to mid-move", () => {
+  it("fails a move cleanly when the source is written to mid-move", async () => {
     const link = fs.linkSync;
     vi.spyOn(fs, "linkSync").mockImplementation((source, destination) => {
       link(source, destination);
       if (source === from) fs.appendFileSync(from, " (still downloading)");
     });
-    const result = applyPlan(plan);
+    const result = await applyPlan(plan);
     expect(result.failed[0]?.error).toMatch(/changed during move/);
     expect(fs.existsSync(to)).toBe(false);
     expect(journals()).toEqual([]);
@@ -187,22 +187,22 @@ describe("recovery after interruptions at other points", () => {
 });
 
 describe("existing files at the destination", () => {
-  it("leaves a hard link to the source that is already there", () => {
+  it("leaves a hard link to the source that is already there", async () => {
     fs.mkdirSync(path.dirname(to), { recursive: true });
     fs.linkSync(from, to);
-    expect(applyPlan(plan).failed[0]?.error).toMatch(/already exists/);
+    expect((await applyPlan(plan)).failed[0]?.error).toMatch(/already exists/);
     expect(fs.existsSync(to)).toBe(true);
     expect(journals()).toEqual([]);
   });
 
-  it("never deletes a look-alike copy when the filesystem can't hard-link", () => {
+  it("never deletes a look-alike copy when the filesystem can't hard-link", async () => {
     fs.mkdirSync(path.dirname(to), { recursive: true });
     fs.copyFileSync(from, to);
     for (const file of [from, to]) fs.utimesSync(file, 1_700_000_000, 1_700_000_000);
     vi.spyOn(fs, "linkSync").mockImplementation(() => {
       throw Object.assign(new Error("operation not supported"), { code: "ENOTSUP" });
     });
-    expect(applyPlan(plan).failed[0]?.error).toMatch(/already exists/);
+    expect((await applyPlan(plan)).failed[0]?.error).toMatch(/already exists/);
     expect(fs.readFileSync(to, "utf8")).toBe("original contents");
     expect(fs.readFileSync(from, "utf8")).toBe("original contents");
     expect(journals()).toEqual([]);
@@ -213,7 +213,7 @@ describe("file names spelled differently from the disk", () => {
   it.runIf(caseInsensitiveFs())("fails a conflicting move cleanly", async () => {
     write(path.join(root, "docs", "REPORT.txt"), "someone else's report");
     const p = await propose([{ file: "REPORT.txt", folder: "Docs" }], { source: path.dirname(from) });
-    const result = applyPlan(p);
+    const result = await applyPlan(p);
     expect(result.failed[0]?.error).toMatch(/already exists/);
     expect(journals()).toEqual([]);
     expect(() => recoverMoves()).not.toThrow();
@@ -221,11 +221,11 @@ describe("file names spelled differently from the disk", () => {
     expect(fs.readFileSync(path.join(root, "docs", "REPORT.txt"), "utf8")).toBe("someone else's report");
   });
 
-  it.runIf(caseInsensitiveFs())("fails cleanly for a plan written with another spelling", () => {
+  it.runIf(caseInsensitiveFs())("fails cleanly for a plan written with another spelling", async () => {
     write(path.join(root, "docs", "REPORT.txt"), "someone else's report");
     const p = loadPlan(plan.id);
     p.items[0]!.file = path.join(root, "dl", "REPORT.txt");
-    expect(applyPlan(p).failed[0]?.error).toMatch(/already exists/);
+    expect((await applyPlan(p)).failed[0]?.error).toMatch(/already exists/);
     expect(journals()).toEqual([]);
     expect(() => recoverMoves()).not.toThrow();
   });
@@ -283,25 +283,25 @@ describe("stuck recovery", () => {
 describe("move lock", () => {
   const locks = () => path.join(root, "home", "move-locks");
 
-  it("ignores files that aren't lock claims", () => {
+  it("ignores files that aren't lock claims", async () => {
     write(path.join(locks(), ".DS_Store"), "Finder metadata");
     write(path.join(locks(), "notes.txt"), "");
-    expect(applyPlan(plan).moved).toHaveLength(1);
+    expect((await applyPlan(plan)).moved).toHaveLength(1);
   });
 
   it.each([
     ["this process", () => process.pid],
     ["another running process", () => process.ppid],
-  ])("treats a claim made before %s started as stale", (_label, pid) => {
+  ])("treats a claim made before %s started as stale", async (_label, pid) => {
     const claim = write(path.join(locks(), `${pid()}-8f3c2e1a-4b5d-4c6e-9f70-1a2b3c4d5e6f.lock`));
     const long = new Date("2000-01-01T00:00:00Z");
     fs.utimesSync(claim, long, long);
-    expect(applyPlan(plan).moved).toHaveLength(1);
+    expect((await applyPlan(plan)).moved).toHaveLength(1);
     expect(fs.existsSync(claim)).toBe(false);
   });
 
-  it("names the lock file when another move is running", () => {
-    withMoveLock(() => expect(() => applyPlan(plan)).toThrow(/move-locks/));
+  it("names the lock file when another move is running", async () => {
+    await withMoveLock(() => expect(applyPlan(plan)).rejects.toThrow(/move-locks/));
   });
 
   it("lets other commands run while another process is moving", () => {
@@ -351,7 +351,7 @@ describe("batch metadata", () => {
       return read(file, options as BufferEncoding);
     }) as typeof fs.readFileSync);
 
-    expect(applyPlan(p).moved).toHaveLength(5);
+    expect((await applyPlan(p)).moved).toHaveLength(5);
     expect(written.filter((f) => f.endsWith("index.json")).length).toBeLessThanOrEqual(1);
     expect(written.filter((f) => f.endsWith(`${p.id}.json`)).length).toBeLessThanOrEqual(1);
     expect(historyReads).toBeLessThanOrEqual(1);

@@ -64,7 +64,7 @@ describe("duplicates", () => {
     write(path.join(dl, "empty2"), "");
     // scan + file report.txt once, then a second copy shows up in Downloads
     await scan(dl, { maxFiles: 50, excerptChars: 100 });
-    applyPlan(await propose([{ file: "report.txt", folder: "Docs" }], { source: dl }));
+    await applyPlan(await propose([{ file: "report.txt", folder: "Docs" }], { source: dl }));
     write(path.join(dl, "report copy.txt"), "filed copy");
 
     const r = await scan(dl, { maxFiles: 50, excerptChars: 100 });

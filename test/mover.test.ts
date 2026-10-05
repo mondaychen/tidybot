@@ -41,7 +41,7 @@ describe("move safety", () => {
       }
       return open(file, flags, mode);
     });
-    expect(applyPlan(plan).failed).toHaveLength(1);
+    expect((await applyPlan(plan)).failed).toHaveLength(1);
     expect(failedAfterMove).toBe(true);
     expect(fs.readFileSync(from, "utf8")).toBe("original contents");
     expect(fs.existsSync(to)).toBe(false);
@@ -57,7 +57,7 @@ describe("move safety", () => {
     const history = path.join(root, "home", "history.jsonl");
     fs.mkdirSync(history);
     try {
-      applyPlan(plan);
+      await applyPlan(plan);
     } catch (err) {
       // Rejecting the operation before moving is also a safe outcome.
       expect(err).toBeInstanceOf(Error);
@@ -124,7 +124,7 @@ describe("cache identity after edits", () => {
     const oldHash = new FileIndex().cachedHash(from);
     expect(oldHash).toBeTruthy();
     const plan = await propose([{ file: from, folder: "Docs" }], { source: dl });
-    if (operation === "undo") expect(applyPlan(plan).failed).toEqual([]);
+    if (operation === "undo") expect((await applyPlan(plan)).failed).toEqual([]);
 
     const edited = operation === "apply" ? from : to;
     const oldStat = fs.statSync(edited);
@@ -132,7 +132,7 @@ describe("cache identity after edits", () => {
     const changedAt = new Date(oldStat.mtimeMs + 10_000);
     fs.utimesSync(edited, changedAt, changedAt);
     expect(new FileIndex().cachedHash(edited)).toBeUndefined();
-    if (operation === "apply") expect(applyPlan(plan).failed).toEqual([]);
+    if (operation === "apply") expect((await applyPlan(plan)).failed).toEqual([]);
     else expect(undoMoves(selectMoves({ planId: plan.id })).failed).toEqual([]);
 
     const destination = operation === "apply" ? to : from;
@@ -147,7 +147,7 @@ describe("filename handling", () => {
   it("a long Chinese rename succeeds at apply time", async () => {
     write(path.join(dl, "3f2a.pdf"), "x");
     const plan = await propose([{ file: "3f2a.pdf", folder: "Docs", rename: "年度财务报告".repeat(30) }], { source: dl });
-    const r = applyPlan(plan);
+    const r = await applyPlan(plan);
     expect(r.failed).toEqual([]);
     expect(r.moved).toHaveLength(1);
     const name = path.basename(r.moved[0]!.to);
@@ -161,7 +161,7 @@ describe("filename handling", () => {
     write(path.join(dl, "report.pdf"), "x");
     const plan = await propose([{ file: "report.pdf", folder: null, rename: "Report" }], { source: dl });
     expect(plan.items[0]?.warnings).toBeUndefined();
-    expect(applyPlan(plan).failed).toEqual([]);
+    expect((await applyPlan(plan)).failed).toEqual([]);
     expect(fs.readdirSync(dl)).toEqual(["Report.pdf"]);
     undoMoves(selectMoves({ last: true }));
     expect(fs.readdirSync(dl)).toEqual(["report.pdf"]);
@@ -180,7 +180,7 @@ describe("cross-device moves", () => {
       if (source === from) throw Object.assign(new Error("cross device"), { code: "EXDEV" });
       link(source, destination);
     });
-    expect(applyPlan(plan).moved).toHaveLength(1);
+    expect((await applyPlan(plan)).moved).toHaveLength(1);
     expect((await findSummaries("quarterly", { limit: 5 }))[0]?.paths).toEqual([path.join(docs, "notes.txt")]);
   });
 });

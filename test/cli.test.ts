@@ -53,7 +53,7 @@ describe("discarded plan lifecycle", () => {
 describe("history rewrites", () => {
   it.each(["compact", "forget"])("%s waits for a running move instead of racing its history append", async (command) => {
     const file = write(path.join(dl, "report.txt"), "original contents");
-    const { moved } = applyPlan(await propose([{ file, folder: "Docs" }], { source: dl }));
+    const { moved } = await applyPlan(await propose([{ file, folder: "Docs" }], { source: dl }));
     const repo = fileURLToPath(new URL("../", import.meta.url));
     const args = command === "forget" ? ["forget", moved[0]!.operationId] : ["compact"];
     withMoveLock(() => {

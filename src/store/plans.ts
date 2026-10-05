@@ -4,7 +4,7 @@ import { TidyError } from "../errors.js";
 import { tidybotHome } from "../paths.js";
 import { readJson, writeJson } from "./io.js";
 
-export type ItemStatus = "pending" | "invalid" | "skipped" | "moved" | "failed";
+export type ItemStatus = "pending" | "invalid" | "skipped" | "moved" | "trashed" | "failed";
 
 export interface PlanItem {
   /** Absolute path of the file to move. */
@@ -13,6 +13,8 @@ export interface PlanItem {
   folder: string | null;
   /** Absolute destination directory. Null when unresolved. */
   destination: string | null;
+  /** Delete instead of moving: the file goes to the trash (see `trashDir`). */
+  delete?: boolean;
   /** New filename, if the agent or user chose to rename. */
   newName?: string;
   reason?: string;

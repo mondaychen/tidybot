@@ -30,6 +30,7 @@
     "minisearch": "^7.2.0",
     "p-map": "^7.0.8",
     "picomatch": "^4.0.7",
+    "trash": "^10.1.1",
     "unpdf": "^1.8.1",
     "write-file-atomic": "^8.0.0",
     "yaml": "^2.9.1",

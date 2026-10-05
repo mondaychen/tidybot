@@ -96,10 +96,10 @@ describe("propose → apply → undo", () => {
 
   it("moves files, records history, and undoes a whole plan", async () => {
     const plan = await proposeBoth();
-    expect(applyPlan(plan, { dryRun: true }).wouldMove).toHaveLength(2);
+    expect((await applyPlan(plan, { dryRun: true })).wouldMove).toHaveLength(2);
     expect(fs.existsSync(path.join(dl, "invoice.txt"))).toBe(true);
 
-    const r = applyPlan(plan);
+    const r = await applyPlan(plan);
     expect(r.moved).toHaveLength(2);
     expect(fs.existsSync(path.join(root, "docs/bills/invoice.txt"))).toBe(true);
     expect(planState(loadPlan(plan.id))).toBe("done");
@@ -114,11 +114,11 @@ describe("propose → apply → undo", () => {
   it("never overwrites; can rename on conflict", async () => {
     write(path.join(root, "docs/bills/invoice.txt"), "existing");
     const p1 = await propose([{ file: "invoice.txt", folder: "Bills" }], { source: dl });
-    expect(applyPlan(p1).failed[0]?.error).toMatch(/already exists/);
+    expect((await applyPlan(p1)).failed[0]?.error).toMatch(/already exists/);
     expect(fs.readFileSync(path.join(root, "docs/bills/invoice.txt"), "utf8")).toBe("existing");
 
     const p2 = await propose([{ file: "invoice.txt", folder: "Bills" }], { source: dl });
-    const r = applyPlan(p2, { onConflict: "rename" });
+    const r = await applyPlan(p2, { onConflict: "rename" });
     expect(r.moved[0]?.to).toBe(path.join(root, "docs/bills/invoice (1).txt"));
   });
 
@@ -126,7 +126,7 @@ describe("propose → apply → undo", () => {
     const plan = await proposeBoth();
     retarget(plan, "invoice.txt", { path: path.join(root, "custom") });
     skip(plan, "roadmap.md");
-    applyPlan(plan);
+    await applyPlan(plan);
     expect(fs.existsSync(path.join(root, "custom/invoice.txt"))).toBe(true);
     expect(fs.existsSync(path.join(dl, "roadmap.md"))).toBe(true);
   });
@@ -143,7 +143,7 @@ describe("propose → apply → undo", () => {
 
   it("reports failed undo and allows forgetting the entry", async () => {
     const plan = await proposeBoth();
-    applyPlan(plan);
+    await applyPlan(plan);
     fs.rmSync(path.join(root, "docs/bills/invoice.txt"));
     const u = undoMoves(selectMoves({ planId: plan.id }));
     expect(u.undone).toHaveLength(1);

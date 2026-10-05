@@ -3,9 +3,11 @@ import path from "node:path";
 import { tidybotHome } from "../paths.js";
 import { appendJsonl, readJsonl, writeJsonl } from "./io.js";
 
-/** Append-only log. State is derived by folding the records. */
+/** Append-only log. State is derived by folding the records. A move into the trash folder has
+ * `trash: true`; a file sent to the system Trash has a `trash` record, with no path to undo to. */
 export type HistoryRecord =
-  | { kind: "move"; id: string; at: string; planId?: string; from: string; to: string }
+  | { kind: "move"; id: string; at: string; planId?: string; from: string; to: string; trash?: true }
+  | { kind: "trash"; id: string; at: string; planId?: string; from: string }
   | { kind: "undo"; id: string; at: string; target: string }
   | { kind: "forget"; id: string; at: string; target: string };
 
@@ -16,7 +18,10 @@ export interface MoveEntry {
   at: string;
   planId?: string;
   from: string;
-  to: string;
+  /** Null for a file sent to the system Trash. */
+  to: string | null;
+  /** Deleted: moved to the trash folder, or sent to the system Trash. */
+  trash?: "folder" | "system";
   state: MoveState;
   undoneAt?: string;
 }
@@ -35,7 +40,9 @@ export function loadMoves(): MoveEntry[] {
   const moves = new Map<string, MoveEntry>();
   for (const r of readJsonl<HistoryRecord>(historyFile())) {
     if (r.kind === "move") {
-      moves.set(r.id, { id: r.id, at: r.at, planId: r.planId, from: r.from, to: r.to, state: "active" });
+      moves.set(r.id, { id: r.id, at: r.at, planId: r.planId, from: r.from, to: r.to, ...(r.trash ? { trash: "folder" as const } : {}), state: "active" });
+    } else if (r.kind === "trash") {
+      moves.set(r.id, { id: r.id, at: r.at, planId: r.planId, from: r.from, to: null, trash: "system", state: "active" });
     } else {
       const m = moves.get(r.target);
       if (!m) continue;
@@ -53,13 +60,14 @@ export function loadMoves(): MoveEntry[] {
 export function trimHistory(max: number): number {
   if (max <= 0) return 0;
   const records = readJsonl<HistoryRecord>(historyFile());
-  const moveIds = records.filter((r) => r.kind === "move").map((r) => r.id);
+  const isMove = (r: HistoryRecord): r is Extract<HistoryRecord, { kind: "move" | "trash" }> => r.kind === "move" || r.kind === "trash";
+  const moveIds = records.filter(isMove).map((r) => r.id);
   const dropped = moveIds.length - max;
   if (dropped <= 0) return 0;
   const keep = new Set(moveIds.slice(dropped));
   writeJsonl(
     historyFile(),
-    records.filter((r) => keep.has(r.kind === "move" ? r.id : r.target)),
+    records.filter((r) => keep.has(isMove(r) ? r.id : r.target)),
   );
   return dropped;
 }

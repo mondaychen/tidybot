@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { listFiles } from "../src/scan.js";
 import { survey } from "../src/survey.js";
-import { sandbox, write } from "./helpers.js";
+import { onPlatform, sandbox, write } from "./helpers.js";
 
 let root: string;
 let dl: string;
@@ -26,13 +26,6 @@ afterEach(() => {
 });
 
 const names = (opts: Partial<Parameters<typeof listFiles>[1]>) => listFiles(dl, { maxFiles: 100, ...opts }).files.map((f) => f.rel).sort();
-
-/** Pretend to run on another OS; restored when the test ends. */
-function onPlatform(platform: NodeJS.Platform): void {
-  const original = Object.getOwnPropertyDescriptor(process, "platform") as PropertyDescriptor;
-  Object.defineProperty(process, "platform", { value: platform });
-  afterEach(() => Object.defineProperty(process, "platform", original));
-}
 
 describe("hidden files", () => {
   it("leaves out dotfiles and dot-folders, and counts only what would have been listed", () => {

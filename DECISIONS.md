@@ -245,8 +245,8 @@ rest for a CLI that an agent drives. Open questions are collected at the end und
     also lists identical files the index knows about elsewhere, for example a copy already filed in a
     smart folder. The limit is that "elsewhere" only covers files tidybot has hashed. A smart folder that
     has never been scanned won't show up; running `scan -r --include-organized` once over the smart
-    folders fills that in. tidybot still never deletes. The guide tells the agent to suggest which copy
-    to delete, keeping the one already filed.
+    folders fills that in. The agent can propose deleting the extra copies, keeping the one already
+    filed (#26).
 
 22. **`--older-than` / `olderThan`** *(requested)*. A file counts as recent if it was created **or**
     modified within the window (`max(mtime, birthtime)`). Birth time catches downloads whose modified date
@@ -299,6 +299,28 @@ rest for a CLI that an agent drives. Open questions are collected at the end und
     - The scan root itself is never checked: scanning a hidden folder by name means you asked for it.
     - `survey` no longer special-cases a folder named `Library`; on macOS it's hidden anyway.
 
+26. **Deleting files** *(requested)*. The agent can propose `{file, delete: true, reason}`, for extra copies
+    of duplicates or files the user's rules say to delete. Nothing is deleted outright:
+    - **System Trash / Recycle Bin** by default, through the `trash` package with globbing off, so brackets
+      in names stay literal. tidybot can't restore from it, so `undo` says to use Finder's Put Back or
+      the Recycle Bin's Restore. History records these as `trash` entries with no destination.
+    - **`trashDir`**: a folder the user picks instead. Files get there by the ordinary journaled move,
+      so `undo` works. A name already in the folder gets a ` (1)` suffix rather than failing. Scans
+      always skip that folder, even with `--include-organized`.
+    - **Linux:** off until the user sets `trashDir`. Desktop trash varies by environment, and onboarding
+      asks the user for a folder. **`allowDelete: false`** turns deleting off everywhere.
+    - Whether deleting is available is checked at `propose` (unavailable → `invalid` item) and again at
+      `apply`, in case the setting changed in between. `scan` and `status` report it as `trash`, so
+      the agent knows before proposing.
+    - Sending to the system Trash is journaled like a move. The journal is written first. Recovery then
+      counts the operation as done if the file has left, and rolls it back if the file is still there.
+      If history can't be written after the file left, the journal stays and the next command records it.
+    - The guide limits deletions to exact duplicates (never the last copy) and the user's own rules, and
+      keeps sensitive files out unless the user asks. `plan set <file> --delete` lets the user mark a
+      file, and `plan set <file> <folder>` turns it back into a move.
+    - `trash` is async, which made `applyPlan` async. The move lock now holds its claim until an async
+      callback settles.
+
 ## 🟡 Open questions
 
 1. **Is `find` enough?** Ranked full-text search plus agent-side semantic search over `summary list` works
@@ -314,6 +336,6 @@ rest for a CLI that an agent drives. Open questions are collected at the end und
 4. **Existing summaries from before the secrets fix.** Nobody has a real `~/.tidybot` yet (I checked this
    machine), so I didn't write a migration. If you ran an earlier build against real files, delete
    `~/.tidybot/summaries.jsonl`.
-5. **Cleanup/trash.** Deferred for now (not picked). Moving whole folders as one unit was **dropped** as
+5. **Cleanup/trash.** Deleting files to the trash is in (#26). Moving whole folders as one unit was **dropped** as
    overkill: tidybot organizes files, and folders in the scanned directory are left alone.
 6. **Name.** It's `tidybot` for now (the original was "Podia File Organizer"). There's no license or npm scope yet.

@@ -6,31 +6,44 @@ import { availableName, sameFile } from "./names.js";
 import { loadConfig } from "./store/config.js";
 import { type MoveEntry, loadMoves, newId, record, trimHistory } from "./store/history.js";
 import { type Plan, targetPath } from "./store/plans.js";
-import { MoveBatch, recordedMove, recoverPendingMoves, withMoveLock } from "./store/operations.js";
+import { MoveBatch, recordedMove, recordedTrash, recoverPendingMoves, withMoveLock } from "./store/operations.js";
+import { isWithin } from "./paths.js";
+import { moveToSystemTrash, type TrashTarget, trashTarget } from "./trash.js";
 export { moveFile } from "./file-move.js";
 
 export type ConflictPolicy = "fail" | "rename";
 
 export interface ApplyResult {
   moved: { file: string; to: string; operationId: string }[];
+  /** Deleted files. `to` is where they are in the trash folder, or null for the system Trash. */
+  trashed: { file: string; to: string | null; operationId: string }[];
   failed: { file: string; error: string }[];
   wouldMove?: { file: string; to: string }[];
+  wouldTrash?: string[];
 }
 
-export function applyPlan(plan: Plan, opts: { dryRun?: boolean; onConflict?: ConflictPolicy } = {}): ApplyResult {
+const pendingItems = (plan: Plan) => plan.items.filter((i) => i.status === "pending" && (i.destination || i.delete));
+
+export async function applyPlan(plan: Plan, opts: { dryRun?: boolean; onConflict?: ConflictPolicy } = {}): Promise<ApplyResult> {
   if (plan.discarded) throw new TidyError(`Plan ${plan.id} was discarded.`, "discarded");
   if (opts.dryRun) {
     // A preview moves nothing, so it needn't wait for (or be blocked by) a running move.
-    const pending = plan.items.filter((i) => i.status === "pending" && i.destination);
-    return { moved: [], failed: [], wouldMove: pending.map((i) => ({ file: i.file, to: targetPath(i) as string })) };
+    const pending = pendingItems(plan);
+    return {
+      moved: [],
+      trashed: [],
+      failed: [],
+      wouldMove: pending.filter((i) => !i.delete).map((i) => ({ file: i.file, to: targetPath(i) as string })),
+      wouldTrash: pending.filter((i) => i.delete).map((i) => i.file),
+    };
   }
-  return withMoveLock(() => {
+  return withMoveLock(async () => {
     recoverPendingMoves();
     // Recovery may have completed a move whose plan update was interrupted.
     for (const move of loadMoves().filter((m) => m.planId === plan.id)) {
       const item = plan.items.find((i) => i.file === move.from);
       if (item) {
-        item.status = "moved";
+        item.status = move.trash ? "trashed" : "moved";
         item.operationId = move.id;
         item.note = undefined;
       }
@@ -39,15 +52,24 @@ export function applyPlan(plan: Plan, opts: { dryRun?: boolean; onConflict?: Con
   });
 }
 
-function applyPending(plan: Plan, onConflict?: ConflictPolicy): ApplyResult {
-  const result: ApplyResult = { moved: [], failed: [] };
+async function applyPending(plan: Plan, onConflict?: ConflictPolicy): Promise<ApplyResult> {
+  const result: ApplyResult = { moved: [], trashed: [], failed: [] };
   const batch = new MoveBatch(plan);
+  const config = loadConfig();
   try {
-    for (const item of plan.items.filter((i) => i.status === "pending" && i.destination)) {
+    for (const item of pendingItems(plan)) {
       try {
         if (!fs.existsSync(item.file)) throw new TidyError("file no longer exists");
         // Plans from older versions may spell the name differently from the disk.
         item.file = onDiskPath(item.file);
+        if (item.delete) {
+          const trashed = await trashItem(item.file, plan.id, trashTarget(config), batch);
+          item.status = "trashed";
+          item.operationId = trashed.operationId;
+          item.note = undefined;
+          result.trashed.push(trashed);
+          continue;
+        }
         let to = targetPath(item) as string;
         if (path.resolve(item.file) === path.resolve(to)) throw new TidyError("file is already in its destination");
         if (fs.existsSync(to) && !sameFile(item.file, to) && onConflict === "rename") to = availableName(to);
@@ -67,8 +89,24 @@ function applyPending(plan: Plan, onConflict?: ConflictPolicy): ApplyResult {
   } finally {
     batch.save(); // Saves the plan too. The journals cover anything before this.
   }
-  if (result.moved.length) trimHistory(loadConfig().historyMaxMoves);
+  if (result.moved.length || result.trashed.length) trimHistory(config.historyMaxMoves);
   return result;
+}
+
+/** Delete one file: a journaled move into the trash folder (undoable), or the system Trash. */
+async function trashItem(file: string, planId: string, target: TrashTarget, batch: MoveBatch): Promise<ApplyResult["trashed"][number]> {
+  const operationId = newId("m");
+  const at = new Date().toISOString();
+  if (target.kind === "system") {
+    await recordedTrash(file, { kind: "trash", id: operationId, at, planId, from: file }, batch, moveToSystemTrash);
+    return { file, to: null, operationId };
+  }
+  if (isWithin(file, target.dir)) throw new TidyError("file is already in the trash folder");
+  // The trash folder is tidybot's, so a name clash there never fails a deletion.
+  const wanted = path.join(target.dir, path.basename(file));
+  const to = fs.existsSync(wanted) ? availableName(wanted) : wanted;
+  recordedMove(file, to, { kind: "move", id: operationId, at, planId, from: file, to, trash: true }, batch);
+  return { file, to, operationId };
 }
 
 export interface UndoResult {
@@ -111,6 +149,9 @@ function undoSelected(moves: MoveEntry[]): UndoResult {
     // Reverse order so chained moves unwind correctly.
     for (const m of [...moves].reverse()) {
       try {
+        if (m.to === null) {
+          throw new TidyError(`${path.basename(m.from)} was moved to the system Trash: restore it from there (Finder: Put Back; Recycle Bin: Restore)`);
+        }
         if (!fs.existsSync(m.to)) throw new TidyError(`file is no longer at ${m.to}`);
         recordedMove(m.to, m.from, { kind: "undo", id: newId("u"), at: new Date().toISOString(), target: m.id }, batch);
         result.undone.push({ id: m.id, from: m.to, to: m.from });

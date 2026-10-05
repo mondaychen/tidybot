@@ -1,7 +1,7 @@
 import path from "node:path";
 import { z } from "zod";
 import { TidyError } from "../errors.js";
-import { projectDir, tidybotHome } from "../paths.js";
+import { pinPath, projectDir, tidybotHome } from "../paths.js";
 import { RULE_IDS } from "../sensitive.js";
 import { readYaml, writeYaml } from "./io.js";
 
@@ -32,6 +32,11 @@ const fields = {
   rules: z.array(z.string()),
   /** Sensitive-detection rule ids turned off (see `tidybot sensitive rules`). */
   allowRules: z.array(z.string()),
+  /** Let the agent propose files to delete. Deleted files go to the trash, never straight away. */
+  allowDelete: z.boolean(),
+  /** Folder deleted files are moved to, instead of the system Trash / Recycle Bin ("" = system).
+   * Required on Linux. Files moved here can be undone like any move. */
+  trashDir: z.string(),
 };
 
 /** What a config file may contain (no defaults, so a project file only overrides what it sets). */
@@ -51,11 +56,26 @@ export const ConfigSchema = z.object({
   summariesMax: fields.summariesMax.default(0),
   rules: fields.rules.default([]),
   allowRules: fields.allowRules.default([]),
+  allowDelete: fields.allowDelete.default(true),
+  trashDir: fields.trashDir.default(""),
 });
 export type Config = z.infer<typeof ConfigSchema>;
 
 /** Keys settable with `config set`; list-valued `rules` has its own command. */
-export const SCALAR_KEYS = ["source", "excerptChars", "maxFiles", "previewChars", "olderThan", "skipOrganized", "rename", "naming", "historyMaxMoves", "summariesMax"] as const;
+export const SCALAR_KEYS = [
+  "source",
+  "excerptChars",
+  "maxFiles",
+  "previewChars",
+  "olderThan",
+  "skipOrganized",
+  "rename",
+  "naming",
+  "historyMaxMoves",
+  "summariesMax",
+  "allowDelete",
+  "trashDir",
+] as const;
 export type ScalarKey = (typeof SCALAR_KEYS)[number];
 
 export type Scope = "global" | "project";
@@ -113,7 +133,7 @@ export function setConfigValue(key: string, raw: string, scope = activeScope()):
     throw new TidyError(`Unknown config key "${key}". Known keys: ${SCALAR_KEYS.join(", ")} (use \`tidybot rules\` for rules)`);
   }
   const def = ConfigSchema.parse({})[key as ScalarKey];
-  const value = typeof def === "number" ? Number(raw) : typeof def === "boolean" ? parseBool(raw) : raw;
+  const value = typeof def === "number" ? Number(raw) : typeof def === "boolean" ? parseBool(raw) : key === "trashDir" && raw ? pinPath(raw) : raw;
   update(scope, (c) => ({ ...c, [key]: value }));
   return loadConfig();
 }
