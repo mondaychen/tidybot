@@ -2,7 +2,7 @@ import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { MAX_NAME_BYTES, nameBytes } from "../src/names.js";
 import { findItem, propose, sanitizeName } from "../src/planner.js";
-import { addFolder } from "../src/store/folders.js";
+import { addFolder, saveFolders } from "../src/store/folders.js";
 import { caseInsensitiveFs, sandbox, write } from "./helpers.js";
 
 let root: string;
@@ -13,6 +13,17 @@ beforeEach(() => {
   addFolder({ name: "Docs", path: path.join(root, "docs") });
 });
 
+
+describe("without smart folders", () => {
+  it("still accepts renames in place and deletions", async () => {
+    saveFolders([]);
+    write(path.join(dl, "scan0001.pdf"), "a");
+    write(path.join(dl, "copy.pdf"), "b");
+    const plan = await propose([{ file: "scan0001.pdf", folder: null, rename: "lease" }, { file: "copy.pdf", delete: true }], { source: dl });
+    expect(plan.items.map((i) => i.status)).toEqual(["pending", "pending"]);
+    await expect(propose([{ file: "copy.pdf", folder: "Docs" }], { source: dl })).rejects.toThrow(/No smart folders/);
+  });
+});
 
 describe("filename limits", () => {
   it("counts bytes, not characters, and keeps the extension", () => {

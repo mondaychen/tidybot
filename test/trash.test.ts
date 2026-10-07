@@ -137,6 +137,23 @@ describe("deleting to the system Trash", () => {
   });
 });
 
+describe("recovering a deletion when a look-alike took the name", () => {
+  it("records the deletion instead of assuming nothing happened", () => {
+    const file = path.join(dl, "report copy.pdf");
+    const stamp = new Date("2026-01-02T03:04:05Z");
+    fs.utimesSync(file, stamp, stamp);
+    writeJson(path.join(root, "home", "operations", "m1.json"), {
+      entry: { kind: "trash", id: "m1", at: new Date().toISOString(), from: file }, from: file, to: "", source: identity(file),
+    });
+    fs.renameSync(file, path.join(systemTrash.dir, "report copy.pdf"));
+    write(file, "REPORT"); // Same size and mtime, different file.
+    fs.utimesSync(file, stamp, stamp);
+    withMoveLock(recoverPendingMoves);
+    expect(loadMoves()).toMatchObject([{ id: "m1", trash: "system" }]);
+    expect(fs.readFileSync(file, "utf8")).toBe("REPORT");
+  });
+});
+
 describe("when deleting is unavailable", () => {
   it("is off when the user opts out", async () => {
     setConfigValue("allowDelete", "false", "global");

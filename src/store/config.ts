@@ -78,6 +78,9 @@ export const SCALAR_KEYS = [
 ] as const;
 export type ScalarKey = (typeof SCALAR_KEYS)[number];
 
+/** Directories: a relative value is pinned to where it was typed, so it doesn't change with the cwd. */
+const PATH_KEYS = new Set<string>(["source", "trashDir"]);
+
 export type Scope = "global" | "project";
 
 function configFile(scope: Scope): string {
@@ -133,7 +136,7 @@ export function setConfigValue(key: string, raw: string, scope = activeScope()):
     throw new TidyError(`Unknown config key "${key}". Known keys: ${SCALAR_KEYS.join(", ")} (use \`tidybot rules\` for rules)`);
   }
   const def = ConfigSchema.parse({})[key as ScalarKey];
-  const value = typeof def === "number" ? Number(raw) : typeof def === "boolean" ? parseBool(raw) : key === "trashDir" && raw ? pinPath(raw) : raw;
+  const value = typeof def === "number" ? Number(raw) : typeof def === "boolean" ? parseBool(raw) : PATH_KEYS.has(key) && raw ? pinPath(raw) : raw;
   update(scope, (c) => ({ ...c, [key]: value }));
   return loadConfig();
 }

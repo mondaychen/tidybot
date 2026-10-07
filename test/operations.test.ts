@@ -246,6 +246,19 @@ describe("file names spelled differently from the disk", () => {
 });
 
 describe("stuck recovery", () => {
+  it("never deletes the moved file when a look-alike takes the original's name", () => {
+    // Same size and modification time as the original, but a different file.
+    const stamp = new Date("2026-01-02T03:04:05Z");
+    fs.utimesSync(from, stamp, stamp);
+    interrupt("after-unlink");
+    const lookalike = write(path.join(root, "dl", "other.txt"), "replacement!!!!!!");
+    fs.utimesSync(lookalike, stamp, stamp);
+    fs.renameSync(lookalike, from);
+    expect(() => recoverMoves()).toThrow(/Cannot safely recover/);
+    expect(fs.readFileSync(to, "utf8")).toBe("original contents");
+    expect(fs.readFileSync(from, "utf8")).toBe("replacement!!!!!!");
+  });
+
   function strand(): string {
     interrupt("after-unlink");
     write(from, "replacement source");

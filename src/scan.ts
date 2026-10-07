@@ -312,7 +312,8 @@ export function compactEntry(f: FileEntry, previewChars: number, duplicate: bool
     size: f.size,
     modified: f.modified.slice(0, 10),
     ...(f.summary ? { summary: f.summary, keywords: f.keywords } : preview ? { preview } : {}),
-    ...(f.excerpt && !f.complete && !f.summary && f.excerpt.length > previewChars ? { more: true } : {}),
+    // The preview is cut short: `inspect` shows the rest, even when the excerpt is the whole file.
+    ...(f.excerpt && !f.summary && f.excerpt.length > previewChars ? { more: true } : {}),
     ...(f.sensitive ? { sensitive: f.sensitive, sensitiveRule: f.sensitiveRule } : {}),
     ...(f.needsSummary ? { needsSummary: f.needsSummary } : {}),
     ...(duplicate ? { duplicate: true } : {}),

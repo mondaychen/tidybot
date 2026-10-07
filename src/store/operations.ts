@@ -179,7 +179,8 @@ function stuck(op: Operation, journal: string, cause?: unknown): TidyError {
  * whose file is in place is "complete", and anything ambiguous is left for the user. */
 function settle(op: Operation, journal: string): "complete" | "rolled back" {
   // Nothing is placed anywhere tidybot can see: the file either left for the Trash or it didn't.
-  if (op.entry.kind === "trash") return sameInode(op.from, op.source) || sameStamp(op.from, op.source) ? "rolled back" : "complete";
+  // It wasn't renamed in place, so its inode tells; a look-alike there means it left.
+  if (op.entry.kind === "trash") return sameInode(op.from, op.source) ? "rolled back" : "complete";
   try {
     // In a case-only rename both names alias one directory entry, and only the exact
     // spelling tells them apart. Otherwise, any spelling the filesystem accepts will do.
@@ -198,8 +199,10 @@ function settle(op: Operation, journal: string): "complete" | "rolled back" {
         place(op.backup, op.from, !!op.renamed); // An interrupted case-only rename.
         return "rolled back";
       }
-    } else if (sameInode(op.from, op.source) || sameStamp(op.from, op.source)) {
+    } else if (sameInode(op.from, op.source) || (op.renamed && sameStamp(op.from, op.source))) {
       // The original is still in place, so whatever this operation added at `to` is redundant.
+      // Size and mtime only identify it where renames renumber files (FAT); there `placed` is
+      // false here, so nothing is unlinked on the strength of a look-alike.
       if (placed) fs.unlinkSync(op.to);
       return "rolled back";
     }
@@ -283,7 +286,7 @@ export async function recordedTrash(from: string, entry: TrashRecord, batch: Mov
   const op: Operation = { entry, from: onDiskPath(from), to: "", source: identity(from) };
   const file = operationFile(entry.id);
   writeJson(file, op);
-  const inPlace = () => sameInode(op.from, op.source) || sameStamp(op.from, op.source);
+  const inPlace = () => sameInode(op.from, op.source);
   try {
     if (!matches(op.from, op.source)) throw new TidyError(`Source changed before it could be deleted: ${op.from}`, "conflict");
     await send(op.from);

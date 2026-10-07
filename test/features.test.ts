@@ -131,6 +131,15 @@ describe("recursive scan", () => {
   });
 });
 
+describe("config paths", () => {
+  it("pins a relative source and trashDir to the directory they were set in", () => {
+    vi.spyOn(process, "cwd").mockReturnValue(root);
+    expect(setConfigValue("source", "dl", "global").source).toBe(path.join(root, "dl"));
+    expect(setConfigValue("trashDir", "bin", "global").trashDir).toBe(path.join(root, "bin"));
+    expect(setConfigValue("source", "~/Downloads", "global").source).toBe("~/Downloads");
+  });
+});
+
 describe("summaries", () => {
   it("flags images and long docs, auto-caches short text", async () => {
     write(path.join(dl, "IMG_1234.jpg"), Buffer.from([0xff, 0xd8, 0, 0]));

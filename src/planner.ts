@@ -142,7 +142,10 @@ export async function propose(
   if (proposals.length === 0) throw new TidyError("Proposal has no items.", "invalid_input");
 
   const folders = loadFolders();
-  if (folders.length === 0) throw new TidyError("No smart folders configured. Add some with `tidybot folders add`.");
+  // Renames in place and deletions need no smart folder.
+  if (folders.length === 0 && proposals.some((p) => typeof p.folder === "string")) {
+    throw new TidyError("No smart folders configured. Add some with `tidybot folders add`.");
+  }
   if (opts.appendTo && planState(opts.appendTo) === "discarded") throw new TidyError(`Plan ${opts.appendTo.id} was discarded.`);
 
   const config = { ...loadConfig(), ...opts.config };

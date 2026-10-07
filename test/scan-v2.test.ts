@@ -94,6 +94,18 @@ describe("compact scan + inspect", () => {
   });
 });
 
+describe("compact preview", () => {
+  it("flags more text when a whole file is longer than the preview", async () => {
+    write(path.join(dl, "notes.txt"), "word ".repeat(96).trim()); // 479 characters
+    const { files } = await scan(dl, { maxFiles: 10, excerptChars: 1000 });
+    expect(files[0]?.complete).toBe(true);
+    expect(compactEntry(files[0]!, 160, false)).toMatchObject({ preview: expect.stringMatching(/…$/), more: true });
+    write(path.join(dl, "short.txt"), "short note");
+    const again = await scan(dl, { maxFiles: 10, excerptChars: 1000 });
+    expect(compactEntry(again.files.find((f) => f.name === "short.txt")!, 160, false).more).toBeUndefined();
+  });
+});
+
 describe("image summary skip", () => {
   it("accepts an unsummarized image with a reason, rejects without one", async () => {
     write(path.join(dl, "Passport Photo IMG 1360.JPG"), Buffer.from([0xff, 0xd8, 9]));

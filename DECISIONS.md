@@ -76,7 +76,8 @@ rest for a CLI that an agent drives. Open questions are collected at the end und
      interrupted operations, repairs an interrupted final history append, and updates history, plans
      and the index. It skips journals while another process holds the lock, since they are in use.
    - Recovery decides what the operation created by inode, or by size and mtime for files renamed on FAT,
-     which may renumber them. It refuses ambiguous filesystem changes and retains the journal. That only
+     which may renumber them. Size and mtime never stand in for the original otherwise: a different file
+     renamed into the old name could match them, and treating it as the original would unlink the moved file. It refuses ambiguous filesystem changes and retains the journal. That only
      blocks moves and undo; other commands print a warning. Once the user has checked the files,
      `tidybot recover --abandon <id>` drops the journal without touching them.
 
