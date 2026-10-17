@@ -22,6 +22,8 @@ export const ProposalSchema = z
     folder: z.string().nullable().optional(),
     /** Delete the file instead: it goes to the trash. */
     delete: z.boolean().optional(),
+    /** Leave the file where it is on purpose (user's rules, or it already looks organized). */
+    skip: z.boolean().optional(),
     /** New filename (no directories). Extension is kept if omitted. */
     rename: z.string().nullish(),
     /** Why an image can be filed without a summary (e.g. its name is already descriptive). */
@@ -29,8 +31,11 @@ export const ProposalSchema = z
     reason: z.string().optional(),
     confidence: z.number().min(0).max(1).optional(),
   })
-  .refine((p) => p.delete || p.folder !== undefined, { message: "each item needs `folder` (null when none fits), or `delete: true`" })
-  .refine((p) => !p.delete || !p.folder, { message: "an item to delete can't also have a folder" });
+  .refine((p) => p.delete || p.skip || p.folder !== undefined, {
+    message: "each item needs `folder` (null when none fits), `delete: true`, or `skip: true`",
+  })
+  .refine((p) => !p.delete || !p.folder, { message: "an item to delete can't also have a folder" })
+  .refine((p) => !p.skip || (!p.delete && !p.folder && !p.rename), { message: "an item to skip can't also have a folder, a rename or `delete`" });
 export const ProposeInputSchema = z.union([
   z.array(ProposalSchema),
   z.object({ source: z.string().optional(), items: z.array(ProposalSchema) }),
@@ -75,6 +80,8 @@ function toItem(p: Proposal, ctx: ProposeContext): PlanItem {
   const invalid = (note: string): PlanItem => ({ ...item, status: "invalid", note });
 
   if (!fs.existsSync(file) || !fs.statSync(file).isFile()) return invalid("file not found");
+  // Nothing happens to a skipped file, so it needs no summary.
+  if (p.skip) return { ...item, status: "skipped", note: "left in place by agent" };
   if (ctx.requireImageSummaries && isImage(mimeOf(file)) && !sensitiveByName(file, ctx.allowRules) && !ctx.summarized(file)) {
     if (!p.summarySkipped) {
       return invalid('image has no summary yet; summarize it (tidybot guide summarize) or give "summarySkipped": "<reason>" if the name says enough');

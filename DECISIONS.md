@@ -322,6 +322,18 @@ rest for a CLI that an agent drives. Open questions are collected at the end und
     - `trash` is async, which made `applyPlan` async. The move lock now holds its claim until an async
       callback settles.
 
+27. **Skipping files on purpose** *(requested)*. A proposal item can be `{file, skip: true, reason}`. The
+    plan records it as `skipped` with the note "left in place by agent", apart from `folder: null` ("agent
+    found no matching smart folder"). So the user can tell a deliberate choice from a file the agent
+    couldn't place.
+    - A skip can't have a folder, rename or `delete`. It needs no image summary, because nothing happens
+      to the file.
+    - The guide uses it for files the user's rules protect, and for subfolders the user already organized
+      by hand (seen with `-r`). Those are skipped as a whole, so the agent doesn't split them. Smart
+      folders are still left out by the scan itself (#14).
+    - The guide tells the agent to put skipped files in the proposal rather than leave them out, so they
+      show up in review. `propose` doesn't enforce this: it doesn't know what the scan returned.
+
 ## 🟡 Open questions
 
 1. **Is `find` enough?** Ranked full-text search plus agent-side semantic search over `summary list` works

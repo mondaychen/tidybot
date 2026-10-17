@@ -25,6 +25,8 @@ I/O and caching, and the user reviews before anything moves. Output is plain tex
    - Pick one smart folder **by name** for each file, or `null`. Add a `rename` when the name is unhelpful
      or conflicts, following `naming`. Extra copies of duplicates (and files the user's rules say to
      delete) can be proposed as `{"file": "<rel>", "delete": true, "reason": "..."}` when `trash.enabled`.
+     Files to leave alone on purpose (the user's rules say so, or they're in a subfolder the user already
+     organized by hand) go in as `{"file": "<rel>", "skip": true, "reason": "..."}`. Don't leave them out.
    - `tidybot propose --source <dir> --data '{"items":[{"file":"<rel>","folder":"<name>","rename":"<optional>","reason":"...","confidence":0.8}]}'`
    - Fix any `warnings` (name conflicts) by re-proposing with `--append` and a different `rename`.
    - Show the user `tidybot plan show` and apply their edits with `tidybot plan set <file> [folder] [--name n] [--keep-name]`

@@ -25,6 +25,35 @@ describe("without smart folders", () => {
   });
 });
 
+describe("skipping on purpose", () => {
+  it("leaves the file in place with its own note, and needs no image summary", async () => {
+    write(path.join(dl, "taxes-2023/w2.pdf"), "a");
+    write(path.join(dl, "taxes-2023/receipt.jpg"), "b");
+    write(path.join(dl, "misc.pdf"), "c");
+    const plan = await propose(
+      [
+        { file: "taxes-2023/w2.pdf", skip: true, reason: "already grouped by the user" },
+        { file: "taxes-2023/receipt.jpg", skip: true },
+        { file: "misc.pdf", folder: null },
+      ],
+      { source: dl },
+    );
+    expect(plan.items.map((i) => [i.status, i.note])).toEqual([
+      ["skipped", "left in place by agent"],
+      ["skipped", "left in place by agent"],
+      ["skipped", "agent found no matching smart folder"],
+    ]);
+    expect(plan.items[0]).toMatchObject({ folder: null, destination: null, reason: "already grouped by the user" });
+  });
+
+  it("rejects a skip combined with a move, rename or delete", async () => {
+    write(path.join(dl, "a.pdf"), "a");
+    for (const extra of [{ folder: "Docs" }, { rename: "b" }, { delete: true }]) {
+      await expect(propose([{ file: "a.pdf", skip: true, ...extra }], { source: dl })).rejects.toThrow(/can't also have/);
+    }
+  });
+});
+
 describe("filename limits", () => {
   it("counts bytes, not characters, and keeps the extension", () => {
     const chinese = "年度财务报告".repeat(30); // 180 chars, 540 bytes

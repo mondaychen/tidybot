@@ -22,8 +22,9 @@ tidybot gathers the facts and performs the moves; a human reviews your plan firs
    Images need a summary unless the filename already says what the image is: then propose it
    with `"summarySkipped": "<why the name is enough>"` (e.g. "Passport Photo IMG 1360.JPG").
 4. For every file choose exactly one smart folder **by name**, or `null` when nothing
-   fits. Never invent folders or paths. Optionally propose a new name (see Renaming), or
-   propose deleting the file instead (see Deleting).
+   fits. Never invent folders or paths. Optionally propose a new name (see Renaming),
+   propose deleting the file instead (see Deleting), or leave it where it is on purpose
+   (see Leaving files in place).
 5. Submit:
    `tidybot propose --source <dir> --data '{"items":[{"file":"<rel>","folder":"<name>","rename":"<new name or omit>","reason":"<short why>","confidence":0.9}]}'`
    (or pipe the JSON on stdin). This writes a plan; it moves nothing.
@@ -59,6 +60,22 @@ conflict; **always** = give every file a name following the naming style.
   -> folder "Bank statements", rename omitted (name is already fine)
 - "3f2a9c1e-77b0-4d1a.pdf", excerpt "Form I-485 ... Receipt Notice ... May 01, 2023"
   -> folder "Legal", rename "2023-05-01 I-485 receipt notice"
+
+## Leaving files in place
+Propose `{"file": "<rel>", "skip": true, "reason": "<why>"}` (no folder, rename or delete) for a
+file you leave where it is on purpose. The plan shows it as skipped, "left in place by agent".
+Use `"folder": null` only when you looked for a folder and none fits.
+Skip a file when:
+- The user's `rules` say to leave it alone (e.g. "don't touch ~/Downloads/Projects").
+- It's in a subfolder the user already organized by hand (you see these with `-r`). Signs: a
+  descriptive folder name ("taxes-2023", "Wedding photos", "client-acme") and files that belong
+  together. Skip all of its files, so you don't split the folder across smart folders. A subfolder
+  with a generic name ("New Folder", "Archive (2)", an unzipped download) full of unrelated files
+  isn't organized: file those normally.
+Rules:
+- Put each skipped file in the proposal. Don't leave it out: the user can't review what isn't in the plan.
+- Don't skip a file just because you're unsure where it goes. Use `null` with a reason.
+- Tell the user which subfolders you left alone, so they can file them with `tidybot plan set`.
 
 ## Sensitive files
 Files with `sensitive` (recovery codes, keys, credentials…) have no preview on purpose.
