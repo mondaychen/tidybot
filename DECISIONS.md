@@ -188,9 +188,16 @@ redesigned the rest for a CLI that an agent drives. Open questions are collected
       - **By name/extension**: recovery or backup codes, emergency kit, secret, password, credential,
         private key, seed phrase, 2FA, API key or token, `.env`, `.pem`, `.key`, `.p12`, `.kdbx`, and so on.
         Files that match by name are never opened.
-      - **By content**, over all the text read, not just the excerpt: private keys, AWS/GitHub/Slack/Stripe/
-        Google/`sk-` keys, `client_secret`, JWTs, 1Password secret keys, `password=…` assignments, and lists
-        of one-time codes. After these, secretlint's maintained recommended rules run as one more rule,
+      - **By content**, over all the text read, not just the excerpt: private keys (PGP blocks too),
+        AWS/GitHub/Slack/Stripe/Google/`sk-`/Hugging Face/xAI/PyPI/DigitalOcean keys, relay keys
+        (`oc_sk_…`), a long `"key": …` value, passwords in `scheme://user:password@` URLs, `client_secret`,
+        JWTs, 1Password secret keys, `password=…` assignments, and lists of one-time codes. Some of these
+        came from the secret patterns in magpie's `internal/redact`, after a probe showed secretlint missed
+        them. The assignment and URL rules skip stand-ins for a value (`${DB_PASS}`, `<your-key>`,
+        `********`, `____`, `process.env.X`), and the assignment rule also skips one plain word
+        ("Password: required"). Without that, setup guides and forms lost their excerpts. A value with a
+        digit, a symbol or a capital after the first letter still counts, and so does an all-lowercase
+        passphrase of 16 letters or more. After these, secretlint's maintained recommended rules run as one more rule,
         `content.secretlint`, covering cloud, SaaS and database credentials (npm, GitLab, OpenAI,
         connection strings with passwords, and others). Its `filter-comments` rule is left out, so a
         `secretlint-disable` comment in a file can't switch detection off. The reason names the

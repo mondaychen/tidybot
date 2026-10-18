@@ -38,7 +38,26 @@ const re = (id: string, kind: Rule["kind"], pattern: RegExp, reason: string, val
   test: (s) => pattern.test(s),
 });
 
-const SENSITIVE_EXT = new Set([".pem", ".key", ".p12", ".pfx", ".kdbx", ".keystore", ".jks", ".ovpn", ".gpg", ".asc", ".ppk", ".env"]);
+/** Like `re`, but a match counts only when `ok` accepts its value (group 1). Every match is checked. */
+const reValue = (id: string, pattern: RegExp, reason: string, ok: (v: string) => boolean): Rule => {
+  const all = new RegExp(pattern.source, pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`);
+  return { id, kind: "content", reason, value: true, test: (s) => [...s.matchAll(all)].some((m) => ok(m[1] ?? m[0])) };
+};
+
+/** Not a value but a stand-in for one: `${DB_PASS}`, `<your-key>`, `{{token}}`, `%PASS%`, `********`,
+ * `____`, `process.env.TOKEN`. */
+function placeholder(v: string): boolean {
+  return /^[$%{<[*]/.test(v) || /^[*xX._-]+$/.test(v) || /^(process\.env|os\.environ|os\.getenv)\b/.test(v);
+}
+
+/** One plain word ("required", "Optional") is prose, not a password: "Password: required". A value with a
+ * digit, a symbol or a capital after the first letter still counts, as does an all-lowercase passphrase
+ * of 16 letters or more. */
+const proseWord = (v: string) => /^[A-Z]?[a-z]{1,15}$/.test(v.replace(/[.,;:!?)]+$/, ""));
+
+const lettersAndDigits = (v: string) => /\d/.test(v) && /[A-Za-z]/.test(v);
+
+const SENSITIVE_EXT =new Set([".pem", ".key", ".p12", ".pfx", ".kdbx", ".keystore", ".jks", ".ovpn", ".gpg", ".asc", ".ppk", ".env"]);
 
 /** Lines that look like one-time recovery codes: "abcd-efgh", "1234 5678", "a1b2c3d4e5". */
 const CODE_LINE = /^\s*(\d+[.)]\s*)?[A-Za-z0-9]{4,6}[- ]?[A-Za-z0-9]{4,6}([- ][A-Za-z0-9]{4,6})?\s*$/;
@@ -74,8 +93,8 @@ const PATTERNS: Rule[] = [
   re("name.tokens", "name", /api[-_ ]?keys?\b|access[-_ ]?keys?\b|\btokens?\b/i, "API keys or tokens"),
   re("name.env", "name", /(^|[._-])env$|^\.?env([._-]|$)/i, "environment file"),
   // ---- content rules (secret values)
-  re("content.private-key", "content", /-----BEGIN [A-Z ]*PRIVATE KEY-----/, "private key", true),
-  re("content.aws-key", "content", /\bAKIA[0-9A-Z]{16}\b/, "AWS access key", true),
+  re("content.private-key", "content", /-----BEGIN [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----/, "private key", true),
+  re("content.aws-key", "content", /\b(AKIA|ASIA)[0-9A-Z]{16}\b/, "AWS access key", true),
   re("content.github-token", "content", /\b(gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,})/, "GitHub token", true),
   re("content.slack-token", "content", /\bxox[abprs]-[A-Za-z0-9-]{10,}/, "Slack token", true),
   re("content.sk-key", "content", /\bsk-(ant-|proj-)?[A-Za-z0-9_-]{20,}/, "API secret key", true),
@@ -84,12 +103,22 @@ const PATTERNS: Rule[] = [
   re("content.client-secret", "content", /"?client_secret"?\s*[:=]/i, "OAuth client secret", true),
   re("content.jwt", "content", /\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\./, "JWT", true),
   re("content.1password-key", "content", /\bA3-[A-Z0-9]{6}-[A-Z0-9]{5,6}-/, "1Password secret key", true),
-  re(
+  re("content.huggingface-token", "content", /\bhf_[A-Za-z0-9]{30,}/, "Hugging Face token", true),
+  re("content.xai-key", "content", /\bxai-[A-Za-z0-9]{40,}/, "xAI API key", true),
+  re("content.pypi-token", "content", /\bpypi-[A-Za-z0-9_-]{50,}/, "PyPI token", true),
+  re("content.digitalocean-token", "content", /\bdop_v1_[a-f0-9]{64}\b/, "DigitalOcean token", true),
+  // A gateway's or relay's own keys: oc_sk_…, or_sk_…
+  reValue("content.relay-key", /\b[a-z]{2,4}_sk_([A-Za-z0-9_-]{20,})/, "API secret key", lettersAndDigits),
+  // The password in scheme://user:password@host, for any scheme (redis, amqp, ftp, …)
+  reValue("content.url-password", /\b[A-Za-z][A-Za-z0-9+.-]*:\/\/[^\s:@/?#"'<>]+:([^\s@/?#"'<>]{3,})@/, "password in a URL", (v) => !placeholder(v)),
+  // A field called just "key", as in a provider config: "key": "oc_…". Code calls many things a key,
+  // so only a long value with letters and digits counts.
+  reValue("content.key-field", /(?:^|[^A-Za-z0-9_.-])["']?key["']?[ \t]*[:=][ \t]*["']?([A-Za-z0-9_\-./+=~!@#%^&*]{16,})/i, "key field", lettersAndDigits),
+  reValue(
     "content.assignment",
-    "content",
-    /(password|passwd|pwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token)\s*[:=]\s*["']?[^\s"']{6,}/i,
+    /(?:password|passwd|pwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token)\s*[:=]\s*["']?([^\s"']{6,})/i,
     "credential assignment",
-    true,
+    (v) => !placeholder(v) && !proseWord(v),
   ),
   {
     id: "content.code-list",
