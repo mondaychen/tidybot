@@ -49,13 +49,19 @@ repeatable:
 ## Install
 
 ```bash
+npm install -g tidybot
+```
+
+Requires Node 22.22.2+ or 24.15+ (or 26+).
+
+To build from source:
+
+```bash
 pnpm install
 pnpm build
 pnpm link --global      # puts `tidybot` on your PATH
 # or, without building:  pnpm dev -- <command>
 ```
-
-Requires Node 20+.
 
 ## Commands
 

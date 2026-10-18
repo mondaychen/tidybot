@@ -69,9 +69,12 @@ async function confirm(question: string): Promise<boolean> {
 const writeScope = (): Scope => activeScope();
 const scopeLabel = () => (projectDir() ? `project ${contractHome(path.dirname(projectDir() as string))}` : "global");
 
+// package.json sits at the package root, one level up from both src/ and dist/.
+const { version } = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string };
+
 const program = new Command("tidybot")
   .description("Organize files into places (folders with rules). An AI agent proposes, you review, tidybot moves (and undoes).\nAI agents: start with `tidybot guide`.")
-  .version("0.2.0")
+  .version(version)
   .option("--json", "machine-readable JSON output (or set TIDYBOT_JSON=1)")
   .option("-g, --global", "ignore any per-project settings (.tidybot/) and use global ones")
   .option("--project <dir>", "use the per-project settings in <dir>/.tidybot")

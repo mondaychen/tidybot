@@ -2,9 +2,28 @@
   "name": "tidybot",
   "version": "0.1.0",
   "description": "Agent-friendly CLI for organizing files into places (folders with rules), with plans, history and undo",
+  "keywords": [
+    "cli",
+    "files",
+    "organize",
+    "downloads",
+    "tidy",
+    "ai-agent",
+    "claude-code",
+    "undo"
+  ],
+  "homepage": "https://github.com/mondaychen/tidybot#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mondaychen/tidybot.git"
+  },
+  "bugs": {
+    "url": "https://github.com/mondaychen/tidybot/issues"
+  },
+  "author": "Mengdi Chen",
   "type": "module",
   "bin": {
-    "tidybot": "./dist/cli.js"
+    "tidybot": "dist/cli.js"
   },
   "files": [
     "dist",
@@ -14,10 +33,12 @@
     "build": "tsc -p tsconfig.build.json && node scripts/copy-pdf-data.mjs",
     "dev": "tsx src/cli.ts",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepack": "pnpm build",
+    "prepublishOnly": "pnpm typecheck && pnpm test"
   },
   "engines": {
-    "node": ">=20"
+    "node": "^22.22.2 || ^24.15.0 || >=26.0.0"
   },
   "license": "Apache-2.0",
   "packageManager": "pnpm@12.6.0",
