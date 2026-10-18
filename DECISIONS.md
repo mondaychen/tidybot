@@ -1,13 +1,12 @@
 # Design decisions
 
 Source: the old `file_organizer` project. Its 2023 Python/Flask + LangChain prototype is on the
-[`legacy`](https://github.com/mondaychen/tidybot/tree/legacy) branch. A later private version added
-a PRD and an Electron app that calls a hosted `podia.ai` API. I kept its core idea and redesigned the
-rest for a CLI that an agent drives. Open questions are collected at the end under 🟡.
+[`legacy`](https://github.com/mondaychen/tidybot/tree/legacy) branch. I kept its core idea and
+redesigned the rest for a CLI that an agent drives. Open questions are collected at the end under 🟡.
 
 ## What carried over from the original idea
 
-| PRD concept | tidybot |
+| Original concept | tidybot |
 |---|---|
 | Smart folders (name + path + natural-language rule, unique names and paths) | `folders.yaml`, `tidybot folders …`. Names are unique case-insensitively, paths are unique after `~` expansion |
 | Analyze files by name, type and content excerpt | `scan` extracts excerpts from txt/md/csv/json/etc., PDF, DOCX, PPTX and XLSX. Unknown extensions are sniffed for text |
