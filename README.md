@@ -187,3 +187,7 @@ model selected the destination folder for each file.
 tidybot is a full rewrite of that project as a TypeScript CLI that an AI agent operates. It keeps
 the smart-folder idea. The code and the history of `main` are new. The old code is on the
 [`legacy`](https://github.com/mondaychen/tidybot/tree/legacy) branch.
+
+## License
+
+[Apache 2.0](./LICENSE)

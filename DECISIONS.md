@@ -413,4 +413,4 @@ redesigned the rest for a CLI that an agent drives. Open questions are collected
    `~/.tidybot/summaries.jsonl`.
 5. **Cleanup/trash.** Deleting files to the trash is in (#26). Moving whole folders as one unit was **dropped** as
    overkill: tidybot organizes files, and folders in the scanned directory are left alone.
-6. **Name.** It's `tidybot` for now. There's no license or npm scope yet.
+6. **Name.** It's `tidybot` for now. The license is Apache 2.0. There's no npm scope yet.
