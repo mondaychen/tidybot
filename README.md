@@ -181,7 +181,7 @@ See [DECISIONS.md](./DECISIONS.md) for design choices and open questions.
 ## History
 
 This repo was `file_organizer` before. That project (2023) was a Python/Flask + LangChain
-prototype with an Electron UI. It sent file names, types and content to GPT or Claude, and the
+prototype with a Next.js web UI. It sent file names, types and content to GPT or Claude, and the
 model selected the destination folder for each file.
 
 tidybot is a full rewrite of that project as a TypeScript CLI that an AI agent operates. It keeps

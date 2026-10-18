@@ -1,7 +1,8 @@
 # Design decisions
 
-Source: the old `file_organizer` project, now on the [`legacy`](https://github.com/mondaychen/tidybot/tree/legacy) branch. It has a PRD, a Python/Flask + LangChain prototype
-and an Electron app that calls a hosted `podia.ai` API. I kept its core idea and redesigned the
+Source: the old `file_organizer` project. Its 2023 Python/Flask + LangChain prototype is on the
+[`legacy`](https://github.com/mondaychen/tidybot/tree/legacy) branch. A later private version added
+a PRD and an Electron app that calls a hosted `podia.ai` API. I kept its core idea and redesigned the
 rest for a CLI that an agent drives. Open questions are collected at the end under 🟡.
 
 ## What carried over from the original idea
