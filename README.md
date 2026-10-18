@@ -54,7 +54,20 @@ npm install -g tidybot
 
 Requires Node 22.22.2+ or 24.15+ (or 26+).
 
-To build from source:
+## Get started
+
+After you install tidybot, open your coding agent (Claude Code, or any agent that can run shell
+commands) and tell it:
+
+> Run CLI command `tidybot guide` and set up
+
+The agent reads the guide and then helps you set up tidybot. It asks which folders hold your
+organized files and which folder you want to clean up. Then it looks at your files and proposes
+places. It also asks how to name files, about general rules, and if tidybot can delete files.
+It saves only what you approve. After that, you can ask it to tidy a folder, for example
+"tidy my Downloads".
+
+## Build from source
 
 ```bash
 pnpm install
