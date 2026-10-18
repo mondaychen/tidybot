@@ -8,23 +8,20 @@ redesigned the rest for a CLI that an agent drives. Open questions are collected
 
 | Original concept | tidybot |
 |---|---|
-| Smart folders (name + path + natural-language rule, unique names and paths) | `folders.yaml`, `tidybot folders …`. Names are unique case-insensitively, paths are unique after `~` expansion |
+| A list of destination folders in the config | Smart folders: `folders.yaml`, `tidybot folders …`. Each folder has a name, a path and a natural-language rule. Names are unique case-insensitively, paths are unique after `~` expansion. A folder with an empty rule works like an old destination |
 | Analyze files by name, type and content excerpt | `scan` extracts excerpts from txt/md/csv/json/etc., PDF, DOCX, PPTX and XLSX. Unknown extensions are sniffed for text |
-| AI suggests exactly one smart folder, never a made-up path | The agent sends folder **names**. Unknown names become `invalid` items and are never moved |
-| User reviews and edits suggestions before any move | A plan is a reviewable artifact: `plan show / set / skip`, then `apply` |
+| The model selects exactly one destination, never a made-up path | The agent sends folder **names**. Unknown names become `invalid` items and are never moved |
+| User reviews suggestions before any move | A plan is a reviewable artifact: `plan show / set / skip`, then `apply` |
 | Batch analyze and batch move | One `scan` for many files, one `propose` for many items, `apply` moves all pending items |
 | Create destination directories that don't exist | Yes (`mkdir -p`) |
-| Operation history with timestamps, undo, "remove failed undo" | `history.jsonl`, `undo`, `forget` |
 | Status per file (pending, analyzing, analyzed, failed) | Plan item status: `pending / invalid / skipped / moved / failed`, each with a `note` |
-| Conversational onboarding that scans existing dirs and proposes folders | `survey` + `guide onboard` + `folders import --dry-run`. The conversation happens in the agent |
-| Persist default directory | `config.yaml` → `source` |
+| Default source directory in the config | `config.yaml` → `source` |
 
 ## What I dropped
 
-- **Hosted API, product key, proxy settings.** There's no server anymore, because the agent is the model.
-- **Tree view, grid/list/detail view modes, desktop notifications.** These are GUI concerns.
-  `scan --recursive` and `survey` cover the useful part of browsing nested directories.
-- **Legacy "destinations" list.** It's superseded by smart folders. A folder with an empty rule works the same way.
+- **API keys and the Flask server.** tidybot calls no model, because the agent is the model.
+- **The web UI.** tidybot is a CLI. `scan --recursive` and `survey` cover the useful part of browsing
+  nested directories.
 
 ## Key decisions
 
@@ -416,4 +413,4 @@ redesigned the rest for a CLI that an agent drives. Open questions are collected
    `~/.tidybot/summaries.jsonl`.
 5. **Cleanup/trash.** Deleting files to the trash is in (#26). Moving whole folders as one unit was **dropped** as
    overkill: tidybot organizes files, and folders in the scanned directory are left alone.
-6. **Name.** It's `tidybot` for now (the original was "Podia File Organizer"). There's no license or npm scope yet.
+6. **Name.** It's `tidybot` for now. There's no license or npm scope yet.
