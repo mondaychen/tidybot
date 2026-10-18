@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -6,6 +7,7 @@ import { strFromU8, unzipSync } from "fflate";
 import { Mime } from "mime";
 import otherTypes from "mime/types/other.js";
 import standardTypes from "mime/types/standard.js";
+import { extensionOf } from "./names.js";
 import { sensitiveByContent, sensitiveByName } from "./sensitive.js";
 import type { Waivers } from "./store/allowlist.js";
 
@@ -34,7 +36,7 @@ const TYPE_SNIFF_BYTES = 4096;
 
 /** Type by extension. For the extensions above, give a path so the file's head can be checked. */
 export function mimeOf(file: string): string | null {
-  const ext = path.extname(file).toLowerCase();
+  const ext = extensionOf(path.basename(file));
   const text = TEXT_TYPES[ext];
   if (text && isTextFile(file)) return text;
   return MIME.getType(ext);
@@ -62,6 +64,9 @@ export interface Extracted {
   excerpt: string;
   /** True when the excerpt is the file's entire text (short file): no summary needed. */
   complete: boolean;
+  /** Hash of all the text read (more than the excerpt), when there is enough of it to compare
+   * files: equal for copies saved again or by another app, whose bytes differ. */
+  textHash?: string;
   /** Why the file looks like it holds credentials. Its excerpt is withheld. */
   sensitive?: string;
   /** Id of the rule that flagged it (for allowlisting). */
@@ -72,6 +77,8 @@ export interface Extracted {
 }
 
 const SNIFF_BYTES = 8192;
+/** Shorter text is too generic ("Page 1", a title) to tell that two files are copies. */
+const MIN_COMPARE_CHARS = 100;
 /** PDFs and Office files are parsed in memory; don't try on huge ones. */
 export const MAX_DOC_BYTES = 50 * 1024 * 1024;
 export const MAX_PDF_PAGES = 5;
@@ -182,25 +189,32 @@ function extractOffice(buf: Buffer, ext: string, limit: number): { text: string;
   return { text: `Sheets: ${sheets.join(", ")}\n${strings}`, whole: false };
 }
 
-/** CMaps for CJK fonts that aren't embedded; without them such text extracts as nothing. unpdf
- * doesn't bundle them. Builds copy them to dist/cmaps; in development they come from pdfjs-dist,
- * a dev dependency. Under Node, pdf.js reads `<cMapUrl><name>` with fs.readFile, so this is a
- * directory path, not a file: URL. */
-function cMapOptions(): { cMapUrl?: string; cMapPacked?: boolean } {
-  const bundled = fileURLToPath(new URL("cmaps/", import.meta.url));
-  if (fs.existsSync(bundled)) return { cMapUrl: bundled, cMapPacked: true };
+/** A pdf.js data directory: dist/<name> in builds, else from pdfjs-dist, a dev dependency.
+ * Under Node, pdf.js reads `<url><file>` with fs.readFile, so this is a directory path, not a
+ * file: URL (unpdf's default is a file: URL, which fails to load). */
+function pdfDataDir(name: string): string | undefined {
+  const bundled = fileURLToPath(new URL(`${name}/`, import.meta.url));
+  if (fs.existsSync(bundled)) return bundled;
   try {
-    const dir = path.dirname(createRequire(import.meta.url).resolve("pdfjs-dist/package.json"));
-    return { cMapUrl: path.join(dir, "cmaps") + path.sep, cMapPacked: true };
+    return path.join(path.dirname(createRequire(import.meta.url).resolve("pdfjs-dist/package.json")), name) + path.sep;
   } catch {
-    return {};
+    return undefined;
   }
+}
+
+/** CMaps for CJK fonts that aren't embedded; without them such text extracts as nothing. Standard
+ * fonts (Dingbats, Symbol and others) that aren't embedded. unpdf bundles neither. Warnings are
+ * off: pdf.js prints them to the console for broken fonts, which clutters every command. */
+function pdfOptions() {
+  const cMapUrl = pdfDataDir("cmaps");
+  const standardFontDataUrl = pdfDataDir("standard_fonts");
+  return { verbosity: 0, ...(cMapUrl ? { cMapUrl, cMapPacked: true } : {}), ...(standardFontDataUrl ? { standardFontDataUrl } : {}) };
 }
 
 /** Text of the first MAX_PDF_PAGES pages, stopping early once `limit` characters are collected. */
 async function extractPdf(buf: Buffer, limit: number): Promise<{ text: string; whole: boolean }> {
   const { getDocumentProxy } = await import("unpdf");
-  const pdf = await getDocumentProxy(new Uint8Array(buf), cMapOptions());
+  const pdf = await getDocumentProxy(new Uint8Array(buf), pdfOptions());
   try {
     const pages: string[] = [];
     let len = 0;
@@ -253,6 +267,7 @@ export async function extractExcerpt(file: string, limit: number, waivers: Waive
       method,
       excerpt: normalized.slice(0, limit),
       complete: normalized.length > 0 && whole && normalized.length <= limit,
+      ...(normalized.length >= MIN_COMPARE_CHARS ? { textHash: createHash("sha256").update(normalized).digest("hex") } : {}),
     };
   } catch (err) {
     return { method, excerpt: "", complete: false, error: err instanceof Error ? err.message : String(err) };

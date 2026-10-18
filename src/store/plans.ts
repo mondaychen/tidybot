@@ -35,6 +35,7 @@ export interface PlanContext {
   recordedAt: string;
   rename: string;
   naming: string;
+  extensionCase?: string;
   rules: string[];
   folders: { name: string; path: string; rule: string }[];
 }

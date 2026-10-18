@@ -34,3 +34,27 @@ export async function hashFile(file: string, size: number): Promise<string> {
   }
   return `quick:${h.digest("hex")}`;
 }
+
+/** Byte-for-byte comparison, stopping at the first difference. False if either can't be read. */
+export function sameContent(a: string, b: string): boolean {
+  let fa: number | undefined;
+  let fb: number | undefined;
+  try {
+    fa = fs.openSync(a, "r");
+    fb = fs.openSync(b, "r");
+    if (fs.fstatSync(fa).size !== fs.fstatSync(fb).size) return false;
+    const ba = Buffer.alloc(1024 * 1024);
+    const bb = Buffer.alloc(ba.length);
+    for (let pos = 0; ; pos += ba.length) {
+      const na = fs.readSync(fa, ba, 0, ba.length, pos);
+      const nb = fs.readSync(fb, bb, 0, bb.length, pos);
+      if (na !== nb || !ba.subarray(0, na).equals(bb.subarray(0, nb))) return false;
+      if (na === 0) return true;
+    }
+  } catch {
+    return false;
+  } finally {
+    if (fa !== undefined) fs.closeSync(fa);
+    if (fb !== undefined) fs.closeSync(fb);
+  }
+}

@@ -11,7 +11,7 @@
     "guides"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && node scripts/copy-cmaps.mjs",
+    "build": "tsc -p tsconfig.build.json && node scripts/copy-pdf-data.mjs",
     "dev": "tsx src/cli.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"

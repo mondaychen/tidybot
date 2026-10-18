@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { alwaysSkipped, type HiddenOptions, hiddenFilter } from "./hidden.js";
+import { extensionOf } from "./names.js";
 import { contractHome, resolvePath } from "./paths.js";
 import { assertDir } from "./scan.js";
 
@@ -33,10 +34,18 @@ const SKIP = new Set(["node_modules", ".git", "__pycache__", ".venv"]);
  * Summarize existing directory structure so an agent can propose smart folders.
  * Returns one row per directory, breadth-limited by depth and maxDirs.
  */
-export function survey(root: string, opts: SurveyOptions): { root: string; dirs: DirSummary[]; truncated: boolean } {
+export interface SurveyResult {
+  root: string;
+  dirs: DirSummary[];
+  truncated: boolean;
+  /** Which limits cut the survey short: deeper folders (raise --depth), more folders (raise --max-dirs). */
+  truncatedBy: ("depth" | "maxDirs")[];
+}
+
+export function survey(root: string, opts: SurveyOptions): SurveyResult {
   assertDir(root);
   const dirs: DirSummary[] = [];
-  let truncated = false;
+  const truncatedBy = new Set<SurveyResult["truncatedBy"][number]>();
   const smart = new Map((opts.folders ?? []).map((f) => [resolvePath(f.path), f.name]));
   const hiddenIn = hiddenFilter(root, opts);
 
@@ -53,7 +62,7 @@ export function survey(root: string, opts: SurveyOptions): { root: string; dirs:
     const subdirs = visible.filter((e) => e.isDirectory() && !SKIP.has(e.name));
     const exts = new Map<string, number>();
     for (const n of fileNames) {
-      const ext = path.extname(n).toLowerCase() || "(none)";
+      const ext = extensionOf(n) || "(none)";
       exts.set(ext, (exts.get(ext) ?? 0) + 1);
     }
     const row: DirSummary | undefined =
@@ -73,18 +82,18 @@ export function survey(root: string, opts: SurveyOptions): { root: string; dirs:
           }
         : undefined;
     if (row) dirs.push(row);
-    else truncated = true;
+    else truncatedBy.add("maxDirs");
 
     let total = fileNames.length;
     if (depth < opts.depth) {
       for (const sub of subdirs.sort((a, b) => a.name.localeCompare(b.name))) total += visit(path.join(dir, sub.name), depth + 1);
     } else if (subdirs.length > 0) {
-      truncated = true;
+      truncatedBy.add("depth");
     }
     if (row) row.totalFiles = total;
     return total;
   };
 
   visit(root, 0);
-  return { root: contractHome(root), dirs, truncated };
+  return { root: contractHome(root), dirs, truncated: truncatedBy.size > 0, truncatedBy: [...truncatedBy] };
 }

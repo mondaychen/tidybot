@@ -19,7 +19,8 @@ this person already organizes files. Save only what they approve.
 7. Ask whether they have a **naming style** for renamed files (date format, word
    separators, case, what to include) and whether renaming should be auto/always/off.
    Save with `tidybot rules naming "<their words>"` and `tidybot config set rename <mode>`.
-   If they have no preference, leave naming empty.
+   If they have no preference, leave naming empty. If their style is lowercase, ask whether
+   extensions should be lowercase too (`.HEIC` → `.heic`): `tidybot config set extensionCase lower`.
 8. Ask whether there are **general rules** that don't fit a single folder (e.g. "never
    move anything with 'draft' in the name", "tax documents go to Tax even if they are
    bills"). Save each with `tidybot rules add "<rule>"`.

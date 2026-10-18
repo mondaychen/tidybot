@@ -112,6 +112,10 @@ rest for a CLI that an agent drives. Open questions are collected at the end und
      mime-db's type.
    - PDFs in non-embedded CJK fonts extract as nothing without pdf.js's CMaps, which unpdf doesn't bundle. The
      build copies them (about 1.6 MB) from `pdfjs-dist`, a dev dependency pinned to unpdf's pdf.js version.
+     It also copies the standard fonts (about 0.8 MB) for PDFs that use a non-embedded Dingbats, Symbol or
+     other base font. Both are given to pdf.js as directory paths: unpdf's default is a `file:` URL, which
+     pdf.js can't read under Node. pdf.js warnings are off (`verbosity: 0`), because it prints them to the
+     console for every broken font.
    - Excerpts are capped by `excerptChars` (default 1000).
    - Legacy `.doc/.xls/.ppt` are out of scope *(confirmed)*.
    - The extractor reports `complete: true` when the excerpt is the whole file, which drives the
@@ -333,6 +337,67 @@ rest for a CLI that an agent drives. Open questions are collected at the end und
       folders are still left out by the scan itself (#14).
     - The guide tells the agent to put skipped files in the proposal rather than leave them out, so they
       show up in review. `propose` doesn't enforce this: it doesn't know what the scan returned.
+
+28. **Fixes from a full run on a real `~/Downloads`** *(requested, 2026-10-17)*. An agent did onboarding,
+    summaries (261 files) and a clean-up (332 files). Its feedback led to these changes:
+    - **pdf.js warnings:** see #9. They showed the install path on every `scan`, `propose` and `plan show`.
+    - **Wallet recovery phrases:** `ArcRecoveryPhrase.png` was not flagged. `name.wallet-seed` now matches
+      `recovery phrase`, `seed phrase`, `secret phrase` and `mnemonic`, and `content.mentions` matches the
+      same phrases. An image has no text to check, so the name is the only signal.
+    - **`content.code-list` gives a count:** the reason is now, for example, `list of one-time codes: 6 of
+      300 lines look like 8-character codes`. A few codes in a long document is probably a false positive.
+      The agent may not open the file, so the count is all it has to decide. The reason never quotes a
+      line. Rules can give such a detail through an optional `describe`.
+    - **`summary todo` lists each hash once.** A summary belongs to the content, so the other paths go in
+      `copies`. The run had 6 duplicate pairs that subagents summarized two times.
+    - **`status` shows "can undo: N move(s)"** (JSON `undoableMoves`, which replaces `activeMoves`), and
+      the latest plan to undo. "active moves" read as moves still running. The count leaves out files
+      sent to the system Trash, because `undo` can't restore those.
+    - **`skippedDirs`:** without `-r`, `scan` lists the subfolders it left out. Before, 16 subfolders were
+      left out with no message. A smart folder inside the scanned directory counts in `skippedFolders`.
+    - **`extractedArchives`:** an archive next to a folder with the same name (`x.zip` and `x/`, also
+      `.tar.gz`, `.7z`, `.rar` and others). tidybot moves files, not folders (open question 5), so the
+      guide tells the agent to tell the user, and to delete the archive only with the user's OK.
+    - **`similar`:** probable copies that aren't identical, in three groups, strongest first. A group is
+      left out when a stronger group already holds all its files, or when all its files are identical:
+      - `same text`: the same extracted text (at least 100 characters). That is all the text extraction
+        read, not only the excerpt: whole Office and text files, and the first PDF pages up to
+        `excerptChars`. Two files can share their first pages and differ later, so this is a hint.
+      - `same name`: the same name and extension apart from a copy marker: ` (1)`, ` copy`, ` copy 2`,
+        ` - Copy`. A number suffix (`-2`, `_2`, ` 2`) is also used for versions and parts, so it only
+        counts when the plain name exists too (`output.pdf` and `output-2.pdf`, but not `chapter-1.pdf`
+        and `chapter-2.pdf`). Same-named files in different subfolders aren't grouped without a marker.
+      - `same size`: the same type and exact size, at 64 KB or more. This found two scans of one page
+        in the run. Smaller files have the same size by chance too often.
+      - The guide says similar files are not identical. The agent compares them and deletes one only
+        when the user's rules say so (the run had "keep the newest of `(1)`-style copies") or the
+        user agrees.
+    - **Conflicts say `identical` or `different`.** `refreshWarnings` compares the two files byte for byte
+      (sizes first, then 1 MB blocks, stopping at the first difference). It is synchronous, so `plan set`
+      and `plan skip` stay synchronous. For identical files the warning says to delete one instead.
+    - **`plan set <files...> --folder <name>`**, also with `--path` and `--delete`. `--name` takes one file
+      only. The change is all or nothing: if one file isn't in the plan, nothing is saved. The older
+      `plan set <file> <folder>` still works: when there is no `--folder`, `--path` or `--delete`, a last
+      argument that names a smart folder and is not a file in the plan is the folder. For many different
+      changes, the guide points to `propose --append`, which already takes JSON.
+    - **`tidybot preview <files...> [--out <dir>]`** writes a JPEG of at most 1024 px of an image, or of
+      a PDF's first page. Some agents' image tools can't open HEIC or WebP. There is no new dependency:
+      - macOS: `sips`, which reads HEIC, WebP and camera formats, and renders PDFs. `-Z` also makes small
+        images larger, so tidybot reads the size first and only makes images smaller. A PDF page is
+        always rendered at 1024 px, because its size is in points (72 dpi).
+      - Elsewhere: ImageMagick (`magick`, or `convert` except on Windows, where `convert` is a disk tool).
+        PDFs need Ghostscript and HEIC needs libheif there. With no converter, the command says what to
+        install.
+      - Files flagged sensitive are refused, as everywhere else. The default output folder is
+        `tidybot-previews` in the temp directory.
+    - **`extensionCase: keep | lower`** (config). With `lower`, a renamed file gets a lowercase extension
+      (`.HEIC` → `.heic`). Default `keep`. A config value is more reliable than reading "lowercase" from
+      the free-text `naming`. Files that aren't renamed keep their names. Plans record the value in
+      `context`.
+    - **Smaller fixes:** `survey` says which limit cut it short (`truncatedBy`: `depth` or `maxDirs`) and
+      which option to raise. Extensions drop a URL query string (`.css?v=1736221786` → `.css`), in
+      `survey` and in file types. `--data -` reads stdin, and the guides send large plans that way: the
+      run's 332 items were 60 KB on the command line, near `ARG_MAX` on some systems.
 
 ## 🟡 Open questions
 

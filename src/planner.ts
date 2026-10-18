@@ -3,6 +3,7 @@ import path from "node:path";
 import { z } from "zod";
 import { TidyError } from "./errors.js";
 import { mimeOf } from "./extract.js";
+import { sameContent } from "./hash.js";
 import { onDiskPath } from "./file-move.js";
 import { fitName, pathKey, sameFile } from "./names.js";
 import { resolvePath } from "./paths.js";
@@ -44,9 +45,10 @@ export type Proposal = z.infer<typeof ProposalSchema>;
 
 /**
  * Make an agent-proposed name safe: single path segment, no reserved characters, NFC-normalized,
- * at most 255 bytes, original extension preserved. Returns undefined if unchanged or nothing is left.
+ * at most 255 bytes, original extension preserved (lowercased with `extensionCase: lower`).
+ * Returns undefined if unchanged or nothing is left.
  */
-export function sanitizeName(proposed: string, original: string): string | undefined {
+export function sanitizeName(proposed: string, original: string, config?: Pick<Config, "extensionCase">): string | undefined {
   if (/[/\\\0]/.test(proposed)) throw new TidyError(`New name "${proposed}" must not contain path separators.`, "invalid_input");
   const ext = path.extname(original);
   let stem = proposed
@@ -57,7 +59,8 @@ export function sanitizeName(proposed: string, original: string): string | undef
     .replace(/^\.+/, "")
     .replace(/[. ]+$/, "");
   if (ext && path.extname(stem).toLowerCase() === ext.toLowerCase()) stem = stem.slice(0, -ext.length);
-  const kept = ext && path.extname(proposed).toLowerCase() === ext.toLowerCase() ? path.extname(proposed) : ext;
+  const typed = ext && path.extname(proposed).toLowerCase() === ext.toLowerCase() ? path.extname(proposed) : ext;
+  const kept = config?.extensionCase === "lower" ? typed.toLowerCase() : typed;
   if (!stem) return undefined;
   const name = fitName(stem, kept);
   return name === path.basename(original).normalize("NFC") ? undefined : name;
@@ -67,7 +70,7 @@ interface ProposeContext {
   source: string;
   trash: TrashStatus;
   folders: SmartFolder[];
-  config: Pick<Config, "rename">;
+  config: Pick<Config, "rename" | "extensionCase">;
   requireImageSummaries: boolean;
   allowRules: ReadonlySet<string>;
   summarized: (file: string) => boolean;
@@ -96,7 +99,7 @@ function toItem(p: Proposal, ctx: ProposeContext): PlanItem {
     if (ctx.config.rename === "off") item.warnings = ["rename ignored: renaming is off (config rename=off)"];
     else {
       try {
-        item.newName = sanitizeName(p.rename, file);
+        item.newName = sanitizeName(p.rename, file, ctx.config);
       } catch (err) {
         return invalid((err as Error).message);
       }
@@ -126,11 +129,14 @@ export function refreshWarnings(plan: Plan): void {
     const add = (w: string) => {
       item.warnings = [...(item.warnings ?? []), w];
     };
+    // Identical files need no new name: one of them can be deleted instead.
+    const compare = (other: string) =>
+      sameContent(item.file, other) ? "identical files: delete one instead of renaming" : "different files: rename one";
     // exists() is case-insensitive on macOS; a hit on the item's own file is a case-only rename, not a conflict.
-    if (fs.existsSync(target) && !sameFile(target, item.file)) add(`conflict: ${path.basename(target)} already exists in the destination`);
+    if (fs.existsSync(target) && !sameFile(target, item.file)) add(`conflict: ${path.basename(target)} already exists in the destination (${compare(target)})`);
     const key = pathKey(target);
     const other = seen.get(key);
-    if (other) add(`conflict: same target as ${path.basename(other.file)} (names that differ only by case or accents collide on macOS)`);
+    if (other) add(`conflict: same target as ${path.basename(other.file)} (${compare(other.file)}; names that differ only by case or accents collide on macOS)`);
     seen.set(key, item);
     if (item.warnings?.length === 0) item.warnings = undefined;
   }
@@ -180,7 +186,14 @@ export async function propose(
     else plan.items[idx] = item;
   }
   refreshWarnings(plan);
-  plan.context = { recordedAt: new Date().toISOString(), rename: config.rename, naming: config.naming, rules: config.rules, folders };
+  plan.context = {
+    recordedAt: new Date().toISOString(),
+    rename: config.rename,
+    naming: config.naming,
+    extensionCase: config.extensionCase,
+    rules: config.rules,
+    folders,
+  };
   savePlan(plan);
   return plan;
 }
@@ -203,25 +216,44 @@ export function findItem(plan: Plan, file: string): PlanItem {
   return item;
 }
 
+type Target = { folder?: string; path?: string; name?: string | null; delete?: boolean };
+
 /**
  * Human override: point an item at another smart folder or any directory, and/or change its new name,
  * or mark it for deletion. `name: null` keeps the original filename.
  */
-export function retarget(plan: Plan, file: string, target: { folder?: string; path?: string; name?: string | null; delete?: boolean }): PlanItem {
-  const item = findItem(plan, file);
+export function retarget(plan: Plan, file: string, target: Target): PlanItem {
+  return retargetAll(plan, [file], target)[0] as PlanItem;
+}
+
+/** `retarget` for several files. All or nothing: the plan is saved only if every file can change. */
+export function retargetAll(plan: Plan, files: string[], target: Target): PlanItem[] {
+  if (files.length > 1 && target.name) throw new TidyError("A new name applies to one file only.", "invalid_input");
+  const ctx = {
+    folders: target.folder ? loadFolders() : [],
+    trash: target.delete ? trashStatus(loadConfig()) : undefined,
+    config: target.name ? loadConfig() : undefined,
+  };
+  // Work on a copy, so a file that fails leaves the plan as it was.
+  const draft: Plan = structuredClone(plan);
+  for (const f of files) setTarget(findItem(draft, f), target, ctx);
+  plan.items = draft.items;
+  refreshWarnings(plan);
+  savePlan(plan);
+  return files.map((f) => findItem(plan, f));
+}
+
+function setTarget(item: PlanItem, target: Target, ctx: { folders: SmartFolder[]; trash?: TrashStatus; config?: Config }): PlanItem {
   if (target.delete) {
     if (target.folder || target.path || target.name) throw new TidyError("A file to delete has no destination or new name.", "invalid_input");
-    const trash = trashStatus(loadConfig());
+    const trash = ctx.trash as TrashStatus;
     if (!trash.enabled) throw new TidyError(trash.reason, "trash_disabled");
-    Object.assign(item, { delete: true, folder: null, destination: null, newName: undefined, status: "pending", note: "edited by user" });
-    refreshWarnings(plan);
-    savePlan(plan);
-    return item;
+    return Object.assign(item, { delete: true, folder: null, destination: null, newName: undefined, status: "pending", note: "edited by user" });
   }
   if (item.delete && !target.folder && !target.path) throw new TidyError("This file is set to be deleted. Give a smart folder or --path to move it instead.");
   item.delete = undefined;
   if (target.folder) {
-    const folder = findFolder(loadFolders(), target.folder);
+    const folder = findFolder(ctx.folders, target.folder);
     if (!folder) throw new TidyError(`No smart folder named "${target.folder}"`, "not_found");
     item.folder = folder.name;
     item.destination = resolvePath(folder.path);
@@ -232,12 +264,10 @@ export function retarget(plan: Plan, file: string, target: { folder?: string; pa
     throw new TidyError("Give a smart folder name, --path, --name, --keep-name or --delete.");
   }
   if (target.name === null) item.newName = undefined;
-  else if (target.name !== undefined) item.newName = sanitizeName(target.name, item.file);
+  else if (target.name !== undefined) item.newName = sanitizeName(target.name, item.file, ctx.config);
   if (!item.destination) item.destination = path.dirname(item.file); // rename-only on a previously unresolved item
   item.status = "pending";
   item.note = "edited by user";
-  refreshWarnings(plan);
-  savePlan(plan);
   return item;
 }
 

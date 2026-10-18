@@ -27,6 +27,8 @@ export interface FileEntry {
   /** The excerpt is the whole file. */
   complete?: boolean;
   extractError?: string;
+  /** Hash of the extracted text, to find copies whose bytes differ (see `findSimilar`). */
+  textHash?: string;
   /** Likely holds credentials: no excerpt or summary is stored or shown. Suggest a password manager. */
   sensitive?: string;
   /** Rule id that flagged it; see `tidybot sensitive rules`. */
@@ -59,6 +61,23 @@ export interface ScanOptions extends ListOptions {
 }
 
 const SKIP_DIRS = new Set(["node_modules", ".git"]);
+
+/** Archive types that unzip tools extract into a folder of the same name, longest first. */
+const ARCHIVE_EXT = [".tar.gz", ".tar.bz2", ".tar.xz", ".zip", ".7z", ".rar", ".tar", ".tgz", ".xip"];
+
+/** "photos.zip" → "photos"; undefined for a file that isn't an archive. */
+export function archiveStem(name: string): string | undefined {
+  const ext = ARCHIVE_EXT.find((e) => name.toLowerCase().endsWith(e));
+  return ext && name.length > ext.length ? name.slice(0, -ext.length) : undefined;
+}
+
+/** An archive next to the folder it was extracted into. One of them is usually redundant. */
+export interface ExtractedArchive {
+  /** Relative path of the archive file. */
+  archive: string;
+  /** Relative path of the folder. */
+  dir: string;
+}
 
 export function assertDir(dir: string): void {
   if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) {
@@ -104,6 +123,8 @@ export function listFiles(dir: string, opts: ListOptions) {
   const hiddenIn = hiddenFilter(dir, opts);
   const files: FileEntry[] = [];
   const unreadable: string[] = [];
+  const skippedDirs: string[] = [];
+  const extractedArchives: ExtractedArchive[] = [];
   let skippedRecent = 0;
   let skippedHidden = 0;
   let seen = 0;
@@ -120,9 +141,25 @@ export function listFiles(dir: string, opts: ListOptions) {
       return;
     }
     const hidden = hiddenIn(current);
+    const visible = entries.filter((e) => !alwaysSkipped(e.name) && !hidden(e.name));
+    const dirNames = new Set(visible.filter((e) => e.isDirectory()).map((e) => e.name));
+    for (const e of visible) {
+      const stem = e.isFile() ? archiveStem(e.name) : undefined;
+      if (stem && dirNames.has(stem)) {
+        extractedArchives.push({ archive: path.relative(dir, path.join(current, e.name)), dir: path.relative(dir, path.join(current, stem)) });
+      }
+    }
     for (const e of entries) {
       if (truncated) return;
       if (alwaysSkipped(e.name)) continue;
+      const full = path.join(current, e.name);
+      // Without -r, say which subfolders were left out, so they aren't mistaken for missing files.
+      if (e.isDirectory() && !opts.recursive && !hidden(e.name)) {
+        const organized = skip.find((f) => isWithin(full, f.abs));
+        if (organized) skippedFolders.add(organized.name);
+        else skippedDirs.push(path.relative(dir, full));
+        continue;
+      }
       // Only count hidden entries that would otherwise be listed or descended into.
       const listable = e.isDirectory() ? opts.recursive && !SKIP_DIRS.has(e.name) : e.isFile() && (!matcher || matcher(e.name));
       if (!listable) continue;
@@ -130,7 +167,6 @@ export function listFiles(dir: string, opts: ListOptions) {
         skippedHidden++;
         continue;
       }
-      const full = path.join(current, e.name);
       if (e.isDirectory()) {
         const organized = skip.find((f) => isWithin(full, f.abs));
         if (organized) skippedFolders.add(organized.name);
@@ -162,6 +198,9 @@ export function listFiles(dir: string, opts: ListOptions) {
     skippedHidden,
     /** Subdirectories that couldn't be read, relative to `dir`. */
     unreadable,
+    /** Subdirectories left out because the scan isn't recursive. */
+    skippedDirs,
+    extractedArchives,
   };
 }
 
@@ -185,6 +224,7 @@ export async function enrich(
     const { excerpt, complete, sensitive } = r;
     if (excerpt) f.excerpt = excerpt;
     if (complete) f.complete = true;
+    if (r.textHash) f.textHash = r.textHash;
     if (r.error) f.extractError = r.error;
     if (sensitive) {
       f.sensitive = sensitive;
@@ -262,10 +302,71 @@ export async function findDuplicates(files: FileEntry[], index = new FileIndex()
   return groups.sort((a, b) => b.size - a.size);
 }
 
+/** Files that are probably copies of each other, but not byte for byte. */
+export interface SimilarGroup {
+  /** "same text": same extracted text. "same name": same name apart from a copy marker such as
+   * " (1)", " copy" or "-2". "same size": same type and exact size (large files only). */
+  why: "same text" | "same name" | "same size";
+  /** Relative paths. */
+  files: string[];
+}
+
+/** Browser and Finder copy markers: "x (1)", "x copy", "x copy 2", "x - Copy", "x - Copy (2)". */
+const COPY_MARK = /(?: \(\d+\)| copy(?: \d+)?| - copy(?: \(\d+\))?)$/i;
+/** "x-2", "x_2", "x 2": also used for versions and parts, so it only counts next to a plain "x". */
+const NUMBER_MARK = /[-_ ]\d{1,2}$/;
+/** Same size counts only for files this big; small files share sizes by chance. */
+const SAME_SIZE_MIN = 64 * 1024;
+
+/**
+ * Groups of probable copies that `findDuplicates` misses because their bytes differ: saved
+ * again, downloaded twice from a site that stamps each download, or exported once more. Hints
+ * for the agent to check, not proof: they are never identical.
+ */
+export function findSimilar(files: FileEntry[]): SimilarGroup[] {
+  const groups: SimilarGroup[] = [];
+  const add = (why: SimilarGroup["why"], members: FileEntry[]) => {
+    if (members.length < 2) return;
+    // Identical bytes are already a duplicate group.
+    if (members.every((m) => m.hash && m.hash === members[0]?.hash)) return;
+    const rels = members.map((m) => m.rel);
+    // A stronger signal already grouped these files.
+    if (groups.some((g) => rels.every((r) => g.files.includes(r)))) return;
+    groups.push({ why, files: rels });
+  };
+  const groupBy = (key: (f: FileEntry) => string | undefined) => {
+    const map = new Map<string, FileEntry[]>();
+    for (const f of files) {
+      const k = key(f);
+      if (k !== undefined) map.set(k, [...(map.get(k) ?? []), f]);
+    }
+    return [...map.values()];
+  };
+
+  for (const g of groupBy((f) => f.textHash)) add("same text", g);
+
+  const stem = (f: FileEntry) => path.basename(f.name, path.extname(f.name)).normalize("NFC").toLowerCase();
+  const plain = new Set(files.map((f) => `${f.ext}\0${stem(f)}`));
+  const marked = new Set<FileEntry>();
+  const nameKey = (f: FileEntry) => {
+    const s = stem(f);
+    const base = s.replace(COPY_MARK, "");
+    const numbered = s.replace(NUMBER_MARK, "");
+    const key = base !== s ? base : numbered !== s && plain.has(`${f.ext}\0${numbered}`) ? numbered : s;
+    if (key !== s) marked.add(f);
+    return `${f.ext}\0${key}`;
+  };
+  // Same-named files in different subfolders (with -r) aren't copies by name alone.
+  for (const g of groupBy(nameKey)) if (g.some((f) => marked.has(f))) add("same name", g);
+
+  for (const g of groupBy((f) => (f.size >= SAME_SIZE_MIN && f.hash ? `${f.mime}\0${f.size}` : undefined))) add("same size", g);
+  return groups;
+}
+
 export async function scan(dir: string, opts: ScanOptions) {
   const listing = listFiles(dir, opts);
   await enrich(listing.files, opts);
-  return { ...listing, duplicates: opts.noHash ? [] : await findDuplicates(listing.files) };
+  return { ...listing, duplicates: opts.noHash ? [] : await findDuplicates(listing.files), similar: findSimilar(listing.files) };
 }
 
 /** Full details for specific files (the second step after a compact scan). */
@@ -302,9 +403,11 @@ export interface CompactFile {
   sensitiveRule?: string;
   needsSummary?: SummaryNeed;
   duplicate?: boolean;
+  /** In a `similar` group: probably a copy, but not identical. */
+  similar?: boolean;
 }
 
-export function compactEntry(f: FileEntry, previewChars: number, duplicate: boolean): CompactFile {
+export function compactEntry(f: FileEntry, previewChars: number, flags: { duplicate?: boolean; similar?: boolean } = {}): CompactFile {
   const preview = f.excerpt ? (f.excerpt.length > previewChars ? `${f.excerpt.slice(0, previewChars)}…` : f.excerpt) : undefined;
   return {
     rel: f.rel,
@@ -316,6 +419,7 @@ export function compactEntry(f: FileEntry, previewChars: number, duplicate: bool
     ...(f.excerpt && !f.summary && f.excerpt.length > previewChars ? { more: true } : {}),
     ...(f.sensitive ? { sensitive: f.sensitive, sensitiveRule: f.sensitiveRule } : {}),
     ...(f.needsSummary ? { needsSummary: f.needsSummary } : {}),
-    ...(duplicate ? { duplicate: true } : {}),
+    ...(flags.duplicate ? { duplicate: true } : {}),
+    ...(flags.similar ? { similar: true } : {}),
   };
 }

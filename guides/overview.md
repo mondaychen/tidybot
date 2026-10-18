@@ -12,13 +12,16 @@ I/O and caching, and the user reviews before anything moves. Output is plain tex
    which includes asking about naming style and general rules.
 2. **Summarize** (follows `tidybot guide summarize`): `tidybot summary todo <dir> [-r]`.
    - Hand the listed files to subagents on a cheap/fast model, or at low effort, about 5–10 files each.
-     Images need a multimodal model.
+     Images need a multimodal model. If its tools can't open HEIC, WebP or PDF pages, use
+     `tidybot preview <rel>... --source <dir>` to make small JPEGs.
    - Save the results with `tidybot summary save --model <m> --data '[...]'`.
    - This step is required for images, because `propose` rejects an image that has no summary. The exception
      is an image whose filename already says what it is: propose it with `"summarySkipped": "<reason>"`.
 3. **Organize** (follows `tidybot guide organize`):
    - `tidybot scan <dir> [-r]` gives you a compact list of files (summary or short preview, flags),
-     duplicate groups, smart folders, `rules`, `naming` and `rename` mode. Files already inside smart
+     duplicate groups, `similar` files (probable copies that aren't identical: check them, don't
+     delete them unless the user's rules say so), smart folders, `rules`, `naming` and `rename` mode.
+     Without `-r`, subfolders are listed in `skippedDirs`. Files already inside smart
      folders are skipped. Page with `--offset <nextOffset>`. If the user wants recent files left alone,
      add `--older-than 14d`.
    - For files the preview doesn't settle, run `tidybot inspect <rel>... --source <dir>`. Don't use `scan --full`.
@@ -27,10 +30,12 @@ I/O and caching, and the user reviews before anything moves. Output is plain tex
      delete) can be proposed as `{"file": "<rel>", "delete": true, "reason": "..."}` when `trash.enabled`.
      Files to leave alone on purpose (the user's rules say so, or they're in a subfolder the user already
      organized by hand) go in as `{"file": "<rel>", "skip": true, "reason": "..."}`. Don't leave them out.
-   - `tidybot propose --source <dir> --data '{"items":[{"file":"<rel>","folder":"<name>","rename":"<optional>","reason":"...","confidence":0.8}]}'`
-   - Fix any `warnings` (name conflicts) by re-proposing with `--append` and a different `rename`.
-   - Show the user `tidybot plan show` and apply their edits with `tidybot plan set <file> [folder] [--name n] [--keep-name]`
-     and `tidybot plan skip <file>`.
+   - `tidybot propose --source <dir> --data '{"items":[{"file":"<rel>","folder":"<name>","rename":"<optional>","reason":"...","confidence":0.8}]}'`.
+     For a large plan, send the JSON on stdin with `--data -`.
+   - Fix any `warnings` (name conflicts): if the files are identical, propose deleting the copy; if
+     they're different, re-propose with `--append` and a different `rename`.
+   - Show the user `tidybot plan show` and apply their edits with `tidybot plan set <file>... --folder <name>`,
+     `tidybot plan set <file> --name n` (or `--keep-name`) and `tidybot plan skip <file>...`.
 4. **Do not run `tidybot apply` until the user approves the plan.** When they do, run
    `tidybot apply --yes`. `tidybot undo --last` reverts the batch, original names included.
    If tidybot reports an interrupted move it can't recover safely, show the user both paths. Run

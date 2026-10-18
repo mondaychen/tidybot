@@ -6,12 +6,19 @@ tidybot gathers the facts and performs the moves; a human reviews your plan firs
 ## Steps
 1. `tidybot scan [dir]` (add `-r` for subfolders) returns a **compact** view (field names as in `--json` output):
    - `folders`: smart folders (name, path, rule)
-   - `rules`, `naming`, `rename`: the user's extra instructions, naming style and rename mode
+   - `rules`, `naming`, `rename`, `extensionCase`: the user's extra instructions, naming style, rename mode,
+     and whether renamed files get a lowercase extension
    - `trash`: whether you may propose deleting files (`enabled`), and where they'd go
    - `files`: `rel`, type, size, date, and either a cached `summary` or a short `preview`.
      Flags: `more` (longer text available), `needsSummary` ("required" for images,
-     "recommended" for long documents and for documents with no text, like scanned PDFs), `sensitive`, `duplicate`.
+     "recommended" for long documents and for documents with no text, like scanned PDFs), `sensitive`,
+     `duplicate`, `similar`.
    - `duplicates`: groups of identical files, including copies already filed elsewhere
+   - `similar`: groups of probable copies that aren't identical, with `why`: "same text" (same extracted
+     text, other bytes), "same name" (same name apart from ` (1)`, ` copy` or `-2`) or "same size"
+     (same type and exact size). See Duplicates and similar files.
+   - `skippedDirs`: subfolders a scan without `-r` left out. `extractedArchives`: an archive next to the
+     folder it was extracted into (`export.zip` and `export/`).
    - `nextOffset`: present when there are more files; scan again with `--offset <n>`.
    Files already inside a smart folder are skipped (`skippedFolders`). So are recent files
    when the user configured `olderThan` (`skippedRecent`); pass `--older-than 14d` yourself if
@@ -25,16 +32,22 @@ tidybot gathers the facts and performs the moves; a human reviews your plan firs
    fits. Never invent folders or paths. Optionally propose a new name (see Renaming),
    propose deleting the file instead (see Deleting), or leave it where it is on purpose
    (see Leaving files in place).
-5. Submit:
-   `tidybot propose --source <dir> --data '{"items":[{"file":"<rel>","folder":"<name>","rename":"<new name or omit>","reason":"<short why>","confidence":0.9}]}'`
-   (or pipe the JSON on stdin). This writes a plan; it moves nothing.
-6. Check the plan's items for `warnings` (e.g. `conflict: ... already exists`). Fix them by
-   re-proposing those files with a different `rename` using `--append`.
+5. Submit on stdin, so a large plan doesn't hit the command-line length limit:
+   ```
+   tidybot propose --source <dir> --data - <<'EOF'
+   {"items":[{"file":"<rel>","folder":"<name>","rename":"<new name or omit>","reason":"<short why>","confidence":0.9}]}
+   EOF
+   ```
+   `--data '<json>'` also works for a few items. This writes a plan; it moves nothing.
+6. Check the plan's items for `warnings` (e.g. `conflict: ... already exists`). Each conflict says
+   whether the two files are `identical` or `different`. For identical files, propose deleting the
+   copy instead. For different files, re-propose with a different `rename` using `--append`.
 7. For `duplicates`, propose deleting the extra copies when deleting is enabled (keep the one
    already in a smart folder, or else the best-named one). Otherwise tell the user which copies
    they could delete. Tell the user about `sensitive` files separately.
 8. Show the human `tidybot plan show`; apply their edits with
-   `tidybot plan set <file> [folder] [--name <new>] [--keep-name]` / `tidybot plan skip <file>`.
+   `tidybot plan set <file>... --folder <name>`, `tidybot plan set <file> --name <new>` (or `--keep-name`)
+   and `tidybot plan skip <file>...`. For many different changes, re-propose those items with `--append`.
 9. Only after the human approves: `tidybot apply --yes`. Undo: `tidybot undo --last`.
    Files sent to the system Trash can't be undone by tidybot; the user restores them from the Trash.
 
@@ -52,7 +65,8 @@ current name is unhelpful (UUIDs, "scan0001", "download (3)", "IMG_1234") or to 
 conflict; **always** = give every file a name following the naming style.
 - Follow `naming` if set. Otherwise: descriptive, concise, keep dates found in the content
   (YYYY-MM-DD first when the user has no preference), no special characters.
-- `rename` is the file name only (no folders). The extension is kept automatically.
+- `rename` is the file name only (no folders). The extension is kept automatically. With
+  `extensionCase: lower`, tidybot makes it lowercase (`.HEIC` → `.heic`).
 - To rename without moving, use `"folder": null` together with `"rename"`.
 
 ## Examples
@@ -67,7 +81,8 @@ file you leave where it is on purpose. The plan shows it as skipped, "left in pl
 Use `"folder": null` only when you looked for a folder and none fits.
 Skip a file when:
 - The user's `rules` say to leave it alone (e.g. "don't touch ~/Downloads/Projects").
-- It's in a subfolder the user already organized by hand (you see these with `-r`). Signs: a
+- It's in a subfolder the user already organized by hand (you see these with `-r`; without it, they
+  are only listed in `skippedDirs`). Signs: a
   descriptive folder name ("taxes-2023", "Wedding photos", "client-acme") and files that belong
   together. Skip all of its files, so you don't split the folder across smart folders. A subfolder
   with a generic name ("New Folder", "Archive (2)", an unzipped download) full of unrelated files
@@ -94,6 +109,15 @@ Detection errs on the side of flagging; `sensitiveRule` says which rule fired
 - **Turning a rule off** everywhere (`tidybot sensitive allow-rule <id>`): only when the user
   asks, e.g. after several false positives from the same rule.
 
+## Duplicates and similar files
+- `duplicates` are byte-for-byte identical: you may propose deleting the extra copies (see Deleting).
+- `similar` files are **not** identical. They're hints: an old and a new version, a download saved
+  twice, two scans of one page. Before you treat them as copies, compare them (`inspect`, summaries,
+  dates, sizes). Propose deleting one only when the user's `rules` say so (e.g. "keep the newest of
+  `(1)`-style copies") or the user agrees. Otherwise file both, and tell the user.
+- `extractedArchives`: the folder usually holds what the archive holds. tidybot moves files, not
+  folders, so tell the user. Propose deleting the archive only when the user agrees or their rules say so.
+
 ## Large directories
 Scan pages through files (`nextOffset`). Propose each page, adding later pages to the same
 plan with `tidybot propose --append`. `--match '*.pdf'` narrows a scan by name.
@@ -102,7 +126,8 @@ plan with `tidybot propose --append`. `--match '*.pdf'` narrows a scan by name.
 Deleted files go to the trash, never straight away: the system Trash / Recycle Bin, or the
 user's `trashDir` folder. Propose `{"file": "<rel>", "delete": true, "reason": "<why>"}` (no folder).
 - Only when `trash.enabled` is true in the scan. If it's false, say why (`trash.reason`) instead.
-- Only for exact `duplicates` (never the last copy), or files the user's `rules` say to delete.
+- Only for exact `duplicates` (never the last copy), or files the user's `rules` say to delete,
+  or files the user agreed to delete.
   Don't delete a file just because it looks old or unimportant.
 - Don't delete `sensitive` files unless the user asks.
 - The user can switch an item with `tidybot plan set <file> --delete`, or back with

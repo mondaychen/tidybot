@@ -20,6 +20,9 @@ export interface RuleInfo {
 
 interface Rule extends RuleInfo {
   test: (s: string) => boolean;
+  /** A reason with details about the match, for rules whose hits are hard to judge from the name
+   * alone. It must never quote the matched text. */
+  describe?: (s: string) => string;
 }
 
 export interface SensitiveHit {
@@ -39,6 +42,21 @@ const SENSITIVE_EXT = new Set([".pem", ".key", ".p12", ".pfx", ".kdbx", ".keysto
 
 /** Lines that look like one-time recovery codes: "abcd-efgh", "1234 5678", "a1b2c3d4e5". */
 const CODE_LINE = /^\s*(\d+[.)]\s*)?[A-Za-z0-9]{4,6}[- ]?[A-Za-z0-9]{4,6}([- ][A-Za-z0-9]{4,6})?\s*$/;
+const codeLines = (t: string) => t.split("\n").filter((l) => CODE_LINE.test(l) && /\d/.test(l));
+
+/** "12 of 300 lines look like 8-character codes": enough to judge a likely false positive (a
+ * few codes in a long document) without showing any of them. */
+function describeCodes(t: string): string {
+  const codes = codeLines(t);
+  const lengths = new Map<number, number>();
+  for (const l of codes) {
+    const n = l.replace(/^\s*\d+[.)]/, "").replace(/[^A-Za-z0-9]/g, "").length;
+    lengths.set(n, (lengths.get(n) ?? 0) + 1);
+  }
+  const common = [...lengths].sort((a, b) => b[1] - a[1])[0]?.[0];
+  const lines = t.split("\n").filter((l) => l.trim()).length;
+  return `list of one-time codes: ${codes.length} of ${lines} lines look like ${common}-character codes`;
+}
 
 const PATTERNS: Rule[] = [
   // ---- filename rules (checked first; the file isn't opened when one matches)
@@ -51,7 +69,7 @@ const PATTERNS: Rule[] = [
   re("name.password", "name", /password|passwd/i, "name mentions passwords"),
   re("name.credential", "name", /credential/i, "name mentions credentials"),
   re("name.private-key", "name", /private[-_ ]?key|\bid_(rsa|dsa|ecdsa|ed25519)\b/i, "private key"),
-  re("name.wallet-seed", "name", /seed[-_ ]?phrase|mnemonic|wallet[-_ ]?backup/i, "wallet seed"),
+  re("name.wallet-seed", "name", /(seed|recovery|secret)[-_ ]?phrase|mnemonic|wallet[-_ ]?backup/i, "wallet seed"),
   re("name.2fa", "name", /\b(2fa|mfa|otp|totp)\b|two[-_ ]?factor/i, "2FA material"),
   re("name.tokens", "name", /api[-_ ]?keys?\b|access[-_ ]?keys?\b|\btokens?\b/i, "API keys or tokens"),
   re("name.env", "name", /(^|[._-])env$|^\.?env([._-]|$)/i, "environment file"),
@@ -78,10 +96,11 @@ const PATTERNS: Rule[] = [
     kind: "content",
     reason: "list of one-time codes",
     value: true,
-    test: (t) => t.split("\n").filter((l) => CODE_LINE.test(l) && /\d/.test(l)).length >= 5,
+    test: (t) => codeLines(t).length >= 5,
+    describe: describeCodes,
   },
   // ---- content rules (mentions: not secrets themselves, so fine inside a summary)
-  re("content.mentions", "content", /recovery codes?|backup codes?|emergency kit|seed phrase/i, "mentions recovery material"),
+  re("content.mentions", "content", /recovery codes?|backup codes?|emergency kit|(seed|recovery|secret) phrase/i, "mentions recovery material"),
 ];
 
 /** secretlint's maintained recommended rules (cloud, SaaS and database credentials), checked after
@@ -109,7 +128,7 @@ async function secretlint(text: string): Promise<string | undefined> {
   return messages[0]?.ruleId.replace(SECRETLINT_PREFIX, "");
 }
 
-const hit = (r: Rule | undefined): SensitiveHit | undefined => (r ? { rule: r.id, reason: r.reason } : undefined);
+const hit = (r: Rule | undefined, text = ""): SensitiveHit | undefined => (r ? { rule: r.id, reason: r.describe?.(text) ?? r.reason } : undefined);
 
 export function sensitiveByName(file: string, disabled: ReadonlySet<string> = new Set()): SensitiveHit | undefined {
   const name = path.basename(file);
@@ -121,7 +140,10 @@ export async function sensitiveByContent(
   text: string,
   opts: { valuesOnly?: boolean; disabled?: ReadonlySet<string> } = {},
 ): Promise<SensitiveHit | undefined> {
-  const found = hit(PATTERNS.find((r) => r.kind === "content" && (!opts.valuesOnly || r.value) && !opts.disabled?.has(r.id) && r.test(text)));
+  const found = hit(
+    PATTERNS.find((r) => r.kind === "content" && (!opts.valuesOnly || r.value) && !opts.disabled?.has(r.id) && r.test(text)),
+    text,
+  );
   if (found || opts.disabled?.has(SECRETLINT.id)) return found;
   const rule = await secretlint(text);
   return rule ? { rule: SECRETLINT.id, reason: `${SECRETLINT.reason} (${rule})` } : undefined;

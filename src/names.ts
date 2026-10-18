@@ -1,6 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
 
+/** ".css" for "site.css?v=1736221786": files saved from a browser can keep the URL's query string. */
+export const extensionOf = (name: string) => path.extname(name.replace(/[?#].*$/, "")).toLowerCase();
+
 /** Most filesystems (APFS, ext4, NTFS in UTF-16 units) cap a name at 255 bytes. */
 export const MAX_NAME_BYTES = 255;
 

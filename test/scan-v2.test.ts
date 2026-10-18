@@ -81,7 +81,7 @@ describe("compact scan + inspect", () => {
     write(path.join(dl, "long.md"), "The quick brown fox. ".repeat(200));
     write(path.join(dl, "short.txt"), "Rent receipt");
     const { files } = await scan(dl, { maxFiles: 10, excerptChars: 1000 });
-    const byName = Object.fromEntries(files.map((f) => [f.name, compactEntry(f, 40, false)]));
+    const byName = Object.fromEntries(files.map((f) => [f.name, compactEntry(f, 40)]));
     expect(byName["long.md"]).toMatchObject({ rel: "long.md", more: true, needsSummary: "recommended" });
     expect(byName["long.md"]?.preview?.length).toBe(41); // 40 + ellipsis
     expect(byName["short.txt"]).toMatchObject({ preview: "Rent receipt" });
@@ -99,10 +99,10 @@ describe("compact preview", () => {
     write(path.join(dl, "notes.txt"), "word ".repeat(96).trim()); // 479 characters
     const { files } = await scan(dl, { maxFiles: 10, excerptChars: 1000 });
     expect(files[0]?.complete).toBe(true);
-    expect(compactEntry(files[0]!, 160, false)).toMatchObject({ preview: expect.stringMatching(/…$/), more: true });
+    expect(compactEntry(files[0]!, 160)).toMatchObject({ preview: expect.stringMatching(/…$/), more: true });
     write(path.join(dl, "short.txt"), "short note");
     const again = await scan(dl, { maxFiles: 10, excerptChars: 1000 });
-    expect(compactEntry(again.files.find((f) => f.name === "short.txt")!, 160, false).more).toBeUndefined();
+    expect(compactEntry(again.files.find((f) => f.name === "short.txt")!, 160).more).toBeUndefined();
   });
 });
 

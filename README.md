@@ -39,12 +39,13 @@ Requires Node 20+.
 | Command | What it does |
 |---|---|
 | `guide [overview\|organize\|summarize\|onboard]` | Instructions for the agent. `overview` (the default) is the entry point: overall workflow and rules. The others cover how to judge, renaming, onboarding and the subagent prompt |
-| `scan [dir] [-r] [--older-than 14d] [--offset n] [--full] [--include-hidden] [--include <glob>]` | Compact list of files (type, size, date, summary or short preview, flags: `sensitive`, `duplicate`, `needsSummary`, `more`), plus duplicate groups, smart folders, rules, naming style and rename mode. Skips hidden files, files already in smart folders and, if asked, recent ones. Pages with `nextOffset` |
+| `scan [dir] [-r] [--older-than 14d] [--offset n] [--full] [--include-hidden] [--include <glob>]` | Compact list of files (type, size, date, summary or short preview, flags: `sensitive`, `duplicate`, `similar`, `needsSummary`, `more`), plus duplicate groups, similar files, smart folders, rules, naming style and rename mode. Skips hidden files, files already in smart folders and, if asked, recent ones. Without `-r`, lists the subfolders it left out (`skippedDirs`). Pages with `nextOffset` |
 | `inspect <files...>` | Full excerpt and details for specific files (step 2 after `scan`) |
-| `summary todo [dir] [-r]` | Files that still need a summary |
+| `summary todo [dir] [-r]` | Files that still need a summary. Identical copies are listed once |
 | `summary save [--data] [--model]` | Stores agent-written summaries: `[{file, summary, keywords[]}]` |
 | `summary get <files...>` / `summary list` | Reads summaries back (`list` is for semantic search on the agent side) |
-| `propose [--data] [--append] [--allow-unsummarized]` | Saves `{file, folder, rename?, reason, confidence}` choices as a plan, or `{file, delete: true, reason}` to delete a file. Moves nothing |
+| `propose [--data] [--append] [--allow-unsummarized]` | Saves `{file, folder, rename?, reason, confidence}` choices as a plan, or `{file, delete: true, reason}` to delete a file. Moves nothing. `--data -` reads stdin |
+| `preview <files...> [--out dir]` | Writes a small JPEG of an image (HEIC, WebP, …) or of a PDF's first page, for agents whose image tools can't open them. Uses `sips` on macOS, ImageMagick elsewhere |
 | `survey <dirs...> [--include-hidden] [--include <glob>]` | Summarizes existing folder trees, for onboarding. Skips hidden folders |
 | `folders import [--data] [--dry-run]` | Adds or updates many smart folders at once |
 
@@ -52,17 +53,17 @@ Requires Node 20+.
 
 | Command | What it does |
 |---|---|
-| `plan list \| show \| set \| skip \| discard` | Review and edit. `plan set <file> [folder] [--path d] [--name n] [--keep-name] [--delete]` |
+| `plan list \| show \| set \| skip \| discard` | Review and edit. `plan set <files...> [--folder f \| --path d \| --delete]`, `plan set <file> --name n` (or `--keep-name`). `plan set <file> <folder>` also works |
 | `apply [plan] [--dry-run] [--yes] [--on-conflict rename]` | Runs moves, renames and deletions. Asks for confirmation |
 | `history`, `undo <ids> \| --plan \| --last`, `forget <ids>` | Move history and undo |
 | `recover [--abandon <ids>]` | Finishes or rolls back interrupted moves (also runs automatically). `--abandon` drops one it can't resolve, after you've checked its files |
 | `find <words...>` | Searches files by summary, keywords and name |
 | `folders list \| add \| edit \| rm` | Smart folders |
 | `rules`, `rules add \| rm`, `rules naming [style]` | General rules and naming style for the agent |
-| `config get \| set \| unset` | `source`, `excerptChars`, `previewChars`, `maxFiles`, `olderThan`, `skipOrganized`, `rename` (auto/always/off), `naming`, `historyMaxMoves`, `summariesMax` (0 = unlimited), `allowDelete`, `trashDir` |
+| `config get \| set \| unset` | `source`, `excerptChars`, `previewChars`, `maxFiles`, `olderThan`, `skipOrganized`, `rename` (auto/always/off), `naming`, `extensionCase` (keep/lower), `historyMaxMoves`, `summariesMax` (0 = unlimited), `allowDelete`, `trashDir` |
 | `compact` | Applies `historyMaxMoves` / `summariesMax` now and drops superseded summaries (also runs automatically after writes) |
 | `init [dir] [--copy-global]` | Creates per-project settings (see below) |
-| `status` | Active scope, counts, open plans |
+| `status` | Active scope, counts, open plans, moves you can undo |
 
 Global flags: `--json` (or `TIDYBOT_JSON=1`), `-g/--global`, `--project <dir>`.
 
@@ -70,8 +71,10 @@ Global flags: `--json` (or `TIDYBOT_JSON=1`), `-g/--global`, `--project <dir>`.
 
 When `rename` is `auto` (the default), the agent proposes a new name only when the current one is
 unhelpful or when it would collide with a file already at the destination. `propose` flags collisions
-as `warnings` so the agent can fix them before you review. The extension is always kept, and names
-are sanitized to a single path segment. Your naming style (`tidybot rules naming "..."`) and general
+as `warnings` so the agent can fix them before you review. Each warning says whether the two files are
+identical (then one can be deleted instead) or different. The extension is always kept, and names
+are sanitized to a single path segment. `config set extensionCase lower` makes the extension of a
+renamed file lowercase (`.HEIC` → `.heic`). Your naming style (`tidybot rules naming "..."`) and general
 rules (`tidybot rules add "..."`) are included in every `scan` so the agent follows them.
 
 ## Deleting
@@ -97,6 +100,10 @@ for files it can't classify from that. On 336 files, the compact output is about
   "Recent" means created *or* modified within the window.
 - `duplicates` lists identical files. That includes copies already filed in a smart folder, as long as
   tidybot has seen that copy before (scanned, summarized, or moved after a scan).
+- `similar` lists probable copies that aren't identical: the same extracted text, the same name apart
+  from ` (1)`, ` copy` or `-2`, or the same type and exact size. The agent checks them; it proposes
+  deleting one only if your rules say so or you agree.
+- `extractedArchives` lists archives next to the folder they were extracted into (`export.zip` and `export/`).
 
 ## Summaries and search
 

@@ -7,14 +7,17 @@ cached automatically).
 ## Steps
 1. `tidybot summary todo [dir] [-r]` lists files that need a summary, with
    `need` = "required" (images) or "recommended" (long documents, and documents with no text such as
-   scanned PDFs).
+   scanned PDFs). Identical files are listed once: one summary covers the `copies` too.
 2. Delegate the reading. If you can spawn subagents, use a cheap/fast model or low
    reasoning effort (e.g. Haiku) and give each subagent a batch of ~5–10 file paths.
    Images and scanned documents need a multimodal model that can view them. If you can't delegate,
    read the files yourself.
+   If your image tools can't open a format (HEIC, WebP, or a PDF page), make a small JPEG first:
+   `tidybot preview <rel>... --source <dir> --out <dir>` prints where each one is. Give the subagent
+   the preview path to look at, but keep the original path in `file`.
 3. Subagent prompt (adapt as needed):
 
-   > For each file path below, open the file and return JSON:
+   > For each file path below, open the file (or the preview given next to it) and return JSON:
    > [{"file": "<path as given>", "summary": "<1–3 sentences: what it is, who/what it
    > concerns, key dates or amounts>", "keywords": ["<5–10 lowercase search terms:
    > document type, organizations, people, topics, year>"]}]

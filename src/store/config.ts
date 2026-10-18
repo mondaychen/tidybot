@@ -6,6 +6,7 @@ import { RULE_IDS } from "../sensitive.js";
 import { readYaml, writeYaml } from "./io.js";
 
 export const RENAME_MODES = ["auto", "always", "off"] as const;
+export const EXTENSION_CASES = ["keep", "lower"] as const;
 
 const fields = {
   /** Directory to organize when none is given on the command line. */
@@ -24,6 +25,8 @@ const fields = {
   rename: z.enum(RENAME_MODES),
   /** Naming style guidance for renames, in the user's words. */
   naming: z.string(),
+  /** keep: a renamed file keeps its extension as it is (".HEIC"); lower: it gets ".heic". */
+  extensionCase: z.enum(EXTENSION_CASES),
   /** Moves kept in history.jsonl (0 = unlimited). Older moves can no longer be undone. */
   historyMaxMoves: z.number().int().min(0),
   /** Summaries kept in summaries.jsonl, most recently written first (0 = unlimited). */
@@ -52,6 +55,7 @@ export const ConfigSchema = z.object({
   skipOrganized: fields.skipOrganized.default(true),
   rename: fields.rename.default("auto"),
   naming: fields.naming.default(""),
+  extensionCase: fields.extensionCase.default("keep"),
   historyMaxMoves: fields.historyMaxMoves.default(0),
   summariesMax: fields.summariesMax.default(0),
   rules: fields.rules.default([]),
@@ -71,6 +75,7 @@ export const SCALAR_KEYS = [
   "skipOrganized",
   "rename",
   "naming",
+  "extensionCase",
   "historyMaxMoves",
   "summariesMax",
   "allowDelete",

@@ -8,7 +8,7 @@ import { GUIDE_TOPICS, readGuide, type GuideTopic } from "./guide.js";
 import { type ConflictPolicy, applyPlan, compactHistory, forgetMove, selectMoves, undoMoves } from "./mover.js";
 import { emit, fail, isJsonMode, renderMoves, renderPlan, setJsonMode, warn } from "./output.js";
 import { PROJECT_DIRNAME, contractHome, projectDir, resolvePath, setScopeOverride, tidybotHome } from "./paths.js";
-import { propose, retarget, skip } from "./planner.js";
+import { findItem, propose, retargetAll, skip } from "./planner.js";
 import { compactEntry, inspect, parseAge, scan } from "./scan.js";
 import {
   SCALAR_KEYS,
@@ -22,13 +22,14 @@ import {
   setRuleAllowed,
   unsetConfigValue,
 } from "./store/config.js";
-import { addFolder, foldersFile, importFolders, loadFolders, removeFolder, saveFolders, updateFolder } from "./store/folders.js";
+import { addFolder, findFolder, foldersFile, importFolders, loadFolders, removeFolder, saveFolders, updateFolder } from "./store/folders.js";
 import { loadMoves } from "./store/history.js";
 import { abandonOperation, recoverMoves, recoverPendingMoves, withMoveLock } from "./store/operations.js";
 import { parseStructured, writeYaml } from "./store/io.js";
-import { listPlans, loadPlan, planState, savePlan } from "./store/plans.js";
+import { type Plan, type PlanItem, listPlans, loadPlan, planState, savePlan } from "./store/plans.js";
 import { FileIndex, compactSummaries, findSummaries } from "./store/summaries.js";
 import { getSummaries, listSummaries, saveSummaries } from "./summarize.js";
+import { defaultPreviewDir, preview } from "./preview.js";
 import { survey } from "./survey.js";
 import { allowFiles } from "./allow.js";
 import { RULES } from "./sensitive.js";
@@ -48,8 +49,9 @@ const collect = (value: string, previous: string[]) => [...previous, value];
 
 const INCLUDE_HELP = "also list hidden files or folders matching this glob: a name, or a path relative to the directory if it has a slash (repeatable)";
 
-/** Structured input from --data, a file path, "-" or piped stdin. */
+/** Structured input from --data, a file path, "-" (or `--data -`) or piped stdin. */
 function readInput(opts: { data?: string }, file?: string): unknown {
+  if (opts.data === "-") return parseStructured(fs.readFileSync(0, "utf8"));
   if (opts.data) return parseStructured(opts.data);
   if (file && file !== "-") return parseStructured(fs.readFileSync(resolvePath(file), "utf8"));
   if (file === "-" || !process.stdin.isTTY) return parseStructured(fs.readFileSync(0, "utf8"));
@@ -154,6 +156,8 @@ addScanOptions(
   .action(async (dirArg: string | undefined, o) => {
     const r = await runScan(dirArg, o, o.content === false ? 0 : o.excerptChars);
     const dupFiles = new Set(r.duplicates.flatMap((d) => d.files));
+    const similarFiles = new Set(r.similar.flatMap((g) => g.files));
+    const compact = (f: (typeof r.files)[number]) => compactEntry(f, r.config.previewChars, { duplicate: dupFiles.has(f.rel), similar: similarFiles.has(f.rel) });
     const needs = {
       required: r.files.filter((f) => f.needsSummary === "required").length,
       recommended: r.files.filter((f) => f.needsSummary === "recommended").length,
@@ -168,25 +172,36 @@ addScanOptions(
       skippedRecent: r.skippedRecent,
       skippedFolders: r.skippedFolders,
       skippedHidden: r.skippedHidden,
+      ...(r.skippedDirs.length ? { skippedDirs: r.skippedDirs } : {}),
       ...(r.unreadable.length ? { unreadable: r.unreadable } : {}),
       needsSummary: needs,
       sensitive: r.files.filter((f) => f.sensitive).length,
       duplicates: r.duplicates,
+      similar: r.similar,
+      ...(r.extractedArchives.length ? { extractedArchives: r.extractedArchives } : {}),
       rename: r.config.rename,
       naming: r.config.naming,
+      extensionCase: r.config.extensionCase,
       rules: r.config.rules,
       trash: trashStatus(r.config),
       folders: r.folders,
-      files: o.full ? r.files : r.files.map((f) => compactEntry(f, r.config.previewChars, dupFiles.has(f.rel))),
+      files: o.full ? r.files : r.files.map(compact),
     };
     emit(data, () => {
       const lines = [`${r.files.length} file(s) in ${contractHome(r.dir)}${r.truncated ? ` (more: --offset ${r.nextOffset})` : ""}`];
       if (r.olderThan) lines.push(`older than ${r.olderThan}: ${r.skippedRecent} recent file(s) left alone`);
       if (r.skippedFolders.length) lines.push(`skipped smart folders: ${r.skippedFolders.join(", ")}`);
       if (r.skippedHidden) lines.push(`${r.skippedHidden} hidden file(s) or folder(s) left out (--include-hidden, or --include <glob>)`);
+      if (r.skippedDirs.length) lines.push(`${r.skippedDirs.length} subfolder(s) not scanned (add -r): ${r.skippedDirs.join(", ")}`);
       if (r.unreadable.length) lines.push(`couldn't read: ${r.unreadable.join(", ")}`);
-      for (const f of r.files.map((f) => compactEntry(f, r.config.previewChars, dupFiles.has(f.rel)))) {
-        const flags = [f.sensitive ? `sensitive: ${f.sensitive} (${f.sensitiveRule})` : "", f.needsSummary ? `summary ${f.needsSummary}` : "", f.duplicate ? "duplicate" : "", f.more ? "more" : ""]
+      for (const f of r.files.map(compact)) {
+        const flags = [
+          f.sensitive ? `sensitive: ${f.sensitive} (${f.sensitiveRule})` : "",
+          f.needsSummary ? `summary ${f.needsSummary}` : "",
+          f.duplicate ? "duplicate" : "",
+          f.similar ? "similar" : "",
+          f.more ? "more" : "",
+        ]
           .filter(Boolean)
           .map((x) => `[${x}]`)
           .join(" ");
@@ -195,11 +210,13 @@ addScanOptions(
         if (text) lines.push(`      ${text.replace(/\s+/g, " ")}`);
       }
       for (const d of r.duplicates) lines.push(`duplicate: ${[...d.files, ...d.elsewhere].join("  =  ")}`);
+      for (const g of r.similar) lines.push(`similar (${g.why}, not identical): ${g.files.join("  ~  ")}`);
+      for (const a of r.extractedArchives) lines.push(`extracted archive: ${a.archive} was extracted into ${a.dir}/; one of them may be redundant`);
       if (needs.required || needs.recommended) lines.push("", `Summaries needed: ${needs.required} required, ${needs.recommended} recommended. See \`tidybot guide summarize\`.`);
       if (r.folders.length === 0) lines.push("", "No smart folders yet. See `tidybot guide onboard`.");
       else lines.push("", "Smart folders:", ...r.folders.map((f) => `  ${f.name} → ${f.path}${f.rule ? `  (${f.rule})` : ""}`));
       if (r.config.rules.length) lines.push("", "Rules:", ...r.config.rules.map((x) => `  - ${x}`));
-      lines.push("", `Rename: ${r.config.rename}${r.config.naming ? `. Naming: ${r.config.naming}` : ""}`);
+      lines.push("", `Rename: ${r.config.rename}${r.config.naming ? `. Naming: ${r.config.naming}` : ""}${r.config.extensionCase === "lower" ? ". Extensions: lowercase" : ""}`);
       lines.push(`Deleting: ${describeTrash(trashStatus(r.config))}`);
       return lines.join("\n");
     });
@@ -223,6 +240,22 @@ program
   });
 
 program
+  .command("preview")
+  .description("write a small JPEG of images (HEIC, WebP, …) or of a PDF's first page, for agents whose image tools can't open them")
+  .argument("<files...>", "paths, relative to --source")
+  .option("-s, --source <dir>", "directory the paths are relative to (default: config `source`)")
+  .option("-o, --out <dir>", "where to write the previews (default: a tidybot-previews folder in the temp directory)")
+  .action(async (files: string[], o) => {
+    const config = loadConfig();
+    const base = resolvePath(o.source ?? config.source);
+    const out = o.out ? resolvePath(o.out) : defaultPreviewDir();
+    const results = await preview(files, { base, out, excerptChars: config.excerptChars, allowRules: config.allowRules });
+    const failed = results.filter((r) => r.error).length;
+    emit({ ok: failed === 0, out, previews: results }, () => results.map((r) => (r.preview ? `${r.file} → ${r.preview}` : `✗ ${r.file}: ${r.error}`)).join("\n"));
+    if (failed) process.exitCode = 1;
+  });
+
+program
   .command("survey")
   .description("summarize existing directory structure so an agent can propose smart folders (onboarding)")
   .argument("<dirs...>", "directories to survey, e.g. ~/Documents")
@@ -239,7 +272,7 @@ program
     emit({ roots, folders }, () =>
       roots
         .flatMap((r) => [
-          `${r.root}${r.truncated ? "  (truncated)" : ""}`,
+          `${r.root}${r.truncated ? `  (truncated: ${r.truncatedBy.map((t) => (t === "depth" ? `deeper folders not shown, raise --depth (now ${o.depth})` : `more folders than --max-dirs ${o.maxDirs}`)).join("; ")})` : ""}`,
           ...r.dirs.map((d) => {
             const exts = d.topExtensions.map((e) => `${e.ext}×${e.count}`).join(" ");
             const smart = d.smartFolder ? `  [smart folder: ${d.smartFolder}]` : "";
@@ -254,7 +287,7 @@ program
   .command("propose")
   .description("submit an agent's classification (and renames) as a reviewable plan (moves nothing)")
   .argument("[file]", "JSON/YAML file with proposals, or - for stdin")
-  .option("--data <json>", "proposals inline")
+  .option("--data <json>", "proposals inline, or - for stdin (better for large plans)")
   .option("-s, --source <dir>", "directory that relative file paths refer to (default: config `source`)")
   .option("-a, --append [planId]", "merge into an existing open plan (default: latest open)")
   .option("--allow-unsummarized", "accept images that have no cached summary")
@@ -274,11 +307,18 @@ addScanOptions(summary.command("todo").description("files that still need a summ
   .option("--required-only", "only files where a summary is required")
   .action(async (dirArg: string | undefined, o) => {
     const r = await runScan(dirArg, o, 200);
-    const todo = r.files
-      .filter((f) => f.needsSummary && (!o.requiredOnly || f.needsSummary === "required"))
-      .map((f) => ({ file: f.path, rel: f.rel, mime: f.mime, size: f.size, need: f.needsSummary, hash: f.hash }));
+    // A summary belongs to the content, so identical copies are listed once, under the first path.
+    const byHash = new Map<string, { file: string; rel: string; mime: string | null; size: number; need?: string; hash?: string; copies?: string[] }>();
+    for (const f of r.files.filter((f) => f.needsSummary && (!o.requiredOnly || f.needsSummary === "required"))) {
+      const first = f.hash ? byHash.get(f.hash) : undefined;
+      if (first) first.copies = [...(first.copies ?? []), f.rel];
+      else byHash.set(f.hash ?? f.path, { file: f.path, rel: f.rel, mime: f.mime, size: f.size, need: f.needsSummary, hash: f.hash });
+    }
+    const todo = [...byHash.values()];
     emit({ source: r.dir, truncated: r.truncated, count: todo.length, files: todo }, () =>
-      todo.length ? todo.map((t) => `${t.need?.padEnd(11)} ${t.rel}`).join("\n") : "All files have summaries (or don't need one).",
+      todo.length
+        ? todo.map((t) => `${t.need?.padEnd(11)} ${t.rel}${t.copies ? `  (same content: ${t.copies.join(", ")})` : ""}`).join("\n")
+        : "All files have summaries (or don't need one).",
     );
   });
 
@@ -286,7 +326,7 @@ summary
   .command("save")
   .description("store summaries: [{file|hash, summary, keywords[]}]")
   .argument("[file]", "JSON/YAML file, or - for stdin")
-  .option("--data <json>", "summaries inline")
+  .option("--data <json>", "summaries inline, or - for stdin")
   .option("--model <name>", "model that wrote them (recorded for reference)")
   .option("-s, --source <dir>", "directory that relative file paths refer to (default: cwd)")
   .action(async (file: string | undefined, o) => {
@@ -467,20 +507,40 @@ plan
 
 plan
   .command("set")
-  .description("change where a file goes (smart folder name or --path) and/or its new name")
-  .argument("<file>", "file path (relative to the plan source)")
-  .argument("[folder]", "smart folder name")
+  .description("change where files go (smart folder or --path), a file's new name, or mark files for deletion")
+  .argument("<files...>", "file paths (relative to the plan source). `plan set <file> <folder>` also works")
+  .option("-f, --folder <name>", "smart folder name")
   .option("--path <dir>", "custom destination directory instead of a smart folder")
-  .option("--name <newName>", "rename the file (extension is kept)")
+  .option("--name <newName>", "rename the file (one file only; extension is kept)")
   .option("--keep-name", "cancel a proposed rename")
-  .option("--delete", "delete the file instead (it goes to the trash)")
+  .option("--delete", "delete the files instead (they go to the trash)")
   .option("-p, --plan <id>", "plan id (default: latest open)")
-  .action((file: string, folder: string | undefined, o) => {
+  .action((args: string[], o) => {
     const p = loadPlan(o.plan);
-    const item = retarget(p, file, { folder, path: o.path, name: o.keepName ? null : o.name, delete: o.delete });
-    const to = item.delete ? "trash" : contractHome(path.join(item.destination ?? "", item.newName ?? path.basename(item.file)));
-    emit({ ok: true, planId: p.id, item }, () => [`${file} → ${to}`, ...(item.warnings ?? []).map((w) => `⚠ ${w}`)].join("\n"));
+    let files = args;
+    let folder: string | undefined = o.folder;
+    // The older form: a smart folder name after the file(s), when it isn't also a file in the plan.
+    const last = args.at(-1) as string;
+    if (!folder && !o.path && !o.delete && args.length > 1 && findFolder(loadFolders(), last) && !inPlan(p, last)) {
+      folder = last;
+      files = args.slice(0, -1);
+    }
+    const items = retargetAll(p, files, { folder, path: o.path, name: o.keepName ? null : o.name, delete: o.delete });
+    const where = (i: PlanItem) => (i.delete ? "trash" : contractHome(path.join(i.destination ?? "", i.newName ?? path.basename(i.file))));
+    emit({ ok: true, planId: p.id, items }, () =>
+      items.flatMap((i, n) => [`${files[n]} → ${where(i)}`, ...(i.warnings ?? []).map((w) => `  ⚠ ${w}`)]).join("\n"),
+    );
   });
+
+/** True if `file` names an item of the plan (pending or done). */
+function inPlan(plan: Plan, file: string): boolean {
+  try {
+    findItem(plan, file);
+    return true;
+  } catch (err) {
+    return !(err instanceof TidyError && err.code === "not_found");
+  }
+}
 
 plan
   .command("skip")
@@ -664,7 +724,7 @@ folders
   .command("import")
   .description("add/update many folders at once from JSON or YAML (e.g. an agent's onboarding proposal)")
   .argument("[file]", "JSON/YAML file, or - for stdin")
-  .option("--data <json>", "folders inline")
+  .option("--data <json>", "folders inline, or - for stdin")
   .option("--replace", "replace all existing folders instead of merging")
   .option("-n, --dry-run", "validate and show the result without saving")
   .action((file: string | undefined, o) => {
@@ -688,10 +748,11 @@ rules
   .action(() => {
     const c = loadConfig();
     const scopes = loadRules();
-    emit({ rename: c.rename, naming: c.naming, rules: c.rules, byScope: scopes }, () =>
+    emit({ rename: c.rename, naming: c.naming, extensionCase: c.extensionCase, rules: c.rules, byScope: scopes }, () =>
       [
         `rename: ${c.rename}`,
         `naming: ${c.naming || "(none — agent uses its default style)"}`,
+        `extensions: ${c.extensionCase === "lower" ? "lowercase when renamed" : "kept as they are"}`,
         ...scopes.flatMap((s) => [`${s.scope} rules:`, ...(s.rules.length ? s.rules.map((r, i) => `  ${i + 1}. ${r}`) : ["  (none)"])]),
       ].join("\n"),
     );
@@ -796,13 +857,16 @@ program
   .action(() => {
     const open = listPlans().filter((p) => planState(p) === "open");
     const c = loadConfig();
+    // Applied and not undone. Files sent to the system Trash are restored from there, not by undo.
+    const undoable = loadMoves().filter((m) => m.state === "active" && m.to !== null);
     const data = {
       home: tidybotHome(),
       project: projectDir() ?? null,
       config: c,
       folders: loadFolders().length,
       openPlans: open.map((p) => p.id),
-      activeMoves: loadMoves().filter((m) => m.state === "active").length,
+      undoableMoves: undoable.length,
+      lastUndoablePlan: undoable.findLast((m) => m.planId)?.planId ?? null,
       trash: trashStatus(c),
     };
     emit(data, () =>
@@ -815,7 +879,7 @@ program
         `rules:        ${c.rules.length}`,
         `deleting:     ${describeTrash(data.trash)}`,
         `open plans:   ${data.openPlans.join(", ") || "none"}`,
-        `active moves: ${data.activeMoves}`,
+        `can undo:     ${data.undoableMoves} move(s)${data.lastUndoablePlan ? `  (latest plan: tidybot undo --plan ${data.lastUndoablePlan})` : ""}`,
       ].join("\n"),
     );
   });
