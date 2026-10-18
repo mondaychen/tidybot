@@ -21,6 +21,31 @@ you:    tidybot undo --last                     → changed your mind (original 
 anyone: tidybot find lease 2025                 → search by summary and keywords
 ```
 
+## Why not just ask your agent to clean up the folder?
+
+An agent can sort a folder with `ls`, `cat` and `mv`. tidybot makes that work safer, cheaper and
+repeatable:
+
+- **You review before anything moves.** The agent writes a plan, not moves. You edit the plan, then
+  you run `apply`. With plain shell commands, the agent moves files while it works.
+- **You can undo.** Each move goes into a history. `tidybot undo` puts files back and restores their
+  original names. A move never overwrites a file, and tidybot recovers interrupted moves. tidybot
+  doesn't delete files permanently: they go to the Trash or to a folder that you choose.
+- **Your setup stays.** Smart folders, rules and naming style are saved. Each session follows them,
+  so you don't explain your folders again, and results are the same from one run to the next.
+- **It reads files that `cat` can't.** tidybot has built-in readers. They get the text from PDF
+  (also PDFs with CJK fonts), DOCX, PPTX and XLSX files, and from text files in UTF-16 or
+  Windows-1252. `tidybot preview` makes a small JPEG of a HEIC or WebP image, or of a PDF's first
+  page, for agents that can't open those formats.
+- **It uses fewer tokens.** `scan` gives one short line per file, so the agent reads full text only
+  for the files it can't sort from that line. Summaries are cached by content hash, so the agent
+  doesn't read a file again after a rename or move. Cheap subagents write the summaries.
+- **It finds duplicates.** tidybot finds identical files by hash, and probable copies by text, name
+  or size. An agent that reads one file at a time can't easily see these.
+- **It protects secrets.** tidybot doesn't show the agent the content of files that look like
+  credentials (keys, `.env` files, recovery codes), and it doesn't cache it.
+- **You can easily find files later.** The summaries stay after the cleanup. `tidybot find` searches them.
+
 ## Install
 
 ```bash
