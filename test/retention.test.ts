@@ -5,7 +5,7 @@ import { applyPlan, selectMoves, undoMoves } from "../src/mover.js";
 import { tidybotHome } from "../src/paths.js";
 import { propose } from "../src/planner.js";
 import { setConfigValue } from "../src/store/config.js";
-import { addFolder } from "../src/store/folders.js";
+import { addPlace } from "../src/store/places.js";
 import { loadMoves, trimHistory } from "../src/store/history.js";
 import { compactSummaries, loadSummaries } from "../src/store/summaries.js";
 import { saveSummaries } from "../src/summarize.js";
@@ -18,12 +18,12 @@ const lines = (name: string) => fs.readFileSync(path.join(tidybotHome(), name), 
 beforeEach(() => {
   root = sandbox();
   dl = path.join(root, "dl");
-  addFolder({ name: "Docs", path: path.join(root, "docs"), rule: "" });
+  addPlace({ name: "Docs", path: path.join(root, "docs"), rule: "" });
 });
 
 async function moveFiles(names: string[]) {
   for (const n of names) write(path.join(dl, n), n);
-  await applyPlan(await propose(names.map((file) => ({ file, folder: "Docs" })), { source: dl }));
+  await applyPlan(await propose(names.map((file) => ({ file, place: "Docs" })), { source: dl }));
 }
 
 describe("history retention", () => {

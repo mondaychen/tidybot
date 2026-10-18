@@ -5,7 +5,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { applyPlan } from "../src/mover.js";
 import { propose } from "../src/planner.js";
-import { addFolder } from "../src/store/folders.js";
+import { addPlace } from "../src/store/places.js";
 import { loadMoves } from "../src/store/history.js";
 import { withMoveLock } from "../src/store/operations.js";
 import { loadPlan, savePlan } from "../src/store/plans.js";
@@ -21,7 +21,7 @@ beforeEach(() => {
   fs.mkdirSync(dl);
   docs = path.join(root, "docs");
   fs.mkdirSync(docs);
-  addFolder({ name: "Docs", path: docs });
+  addPlace({ name: "Docs", path: docs });
 });
 
 afterEach(() => {
@@ -31,7 +31,7 @@ afterEach(() => {
 describe("discarded plan lifecycle", () => {
   it.each([false, true])("rejects a discarded plan passed explicitly to apply (dryRun=%s)", async (dryRun) => {
     const file = write(path.join(dl, "report.txt"), "original contents");
-    const plan = await propose([{ file, folder: "Docs" }], { source: dl });
+    const plan = await propose([{ file, place: "Docs" }], { source: dl });
     plan.discarded = true;
     savePlan(plan);
     const repo = fileURLToPath(new URL("../", import.meta.url));
@@ -53,7 +53,7 @@ describe("discarded plan lifecycle", () => {
 describe("history rewrites", () => {
   it.each(["compact", "forget"])("%s waits for a running move instead of racing its history append", async (command) => {
     const file = write(path.join(dl, "report.txt"), "original contents");
-    const { moved } = await applyPlan(await propose([{ file, folder: "Docs" }], { source: dl }));
+    const { moved } = await applyPlan(await propose([{ file, place: "Docs" }], { source: dl }));
     const repo = fileURLToPath(new URL("../", import.meta.url));
     const args = command === "forget" ? ["forget", moved[0]!.operationId] : ["compact"];
     withMoveLock(() => {

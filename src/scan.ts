@@ -6,7 +6,7 @@ import { TidyError } from "./errors.js";
 import { extractExcerpt, mimeOf } from "./extract.js";
 import { alwaysSkipped, type HiddenOptions, hiddenFilter } from "./hidden.js";
 import { contractHome, isWithin, resolvePath } from "./paths.js";
-import type { SmartFolder } from "./store/folders.js";
+import type { Place } from "./store/places.js";
 import { loadAllowances, waiversFor } from "./store/allowlist.js";
 import { loadConfig } from "./store/config.js";
 import { FileIndex, appendSummary, compactSummaries, loadSummaries } from "./store/summaries.js";
@@ -46,8 +46,8 @@ export interface ListOptions extends HiddenOptions {
   offset?: number;
   /** Only files whose name matches this glob, e.g. `*.pdf` or `*.{jpg,png}` (case-insensitive). */
   match?: string;
-  /** Don't descend into these smart folders (already organized). */
-  skipFolders?: SmartFolder[];
+  /** Don't descend into these places (already organized). */
+  skipPlaces?: Place[];
   /** Only files that arrived and were last modified before this time (ms since epoch). */
   before?: number;
 }
@@ -115,11 +115,11 @@ function makeEntry(full: string, rel: string, st: fs.Stats): FileEntry {
 export function listFiles(dir: string, opts: ListOptions) {
   assertDir(dir);
   const matcher = opts.match ? picomatch(opts.match, { nocase: true, dot: true }) : undefined;
-  // A smart folder that contains the scan root was asked for explicitly; only skip ones below it.
-  const skip = (opts.skipFolders ?? [])
+  // A place that contains the scan root was asked for explicitly; only skip ones below it.
+  const skip = (opts.skipPlaces ?? [])
     .map((f) => ({ name: f.name, abs: resolvePath(f.path) }))
     .filter((f) => !isWithin(dir, f.abs));
-  const skippedFolders = new Set<string>();
+  const skippedPlaces = new Set<string>();
   const hiddenIn = hiddenFilter(dir, opts);
   const files: FileEntry[] = [];
   const unreadable: string[] = [];
@@ -156,7 +156,7 @@ export function listFiles(dir: string, opts: ListOptions) {
       // Without -r, say which subfolders were left out, so they aren't mistaken for missing files.
       if (e.isDirectory() && !opts.recursive && !hidden(e.name)) {
         const organized = skip.find((f) => isWithin(full, f.abs));
-        if (organized) skippedFolders.add(organized.name);
+        if (organized) skippedPlaces.add(organized.name);
         else skippedDirs.push(path.relative(dir, full));
         continue;
       }
@@ -169,7 +169,7 @@ export function listFiles(dir: string, opts: ListOptions) {
       }
       if (e.isDirectory()) {
         const organized = skip.find((f) => isWithin(full, f.abs));
-        if (organized) skippedFolders.add(organized.name);
+        if (organized) skippedPlaces.add(organized.name);
         else walk(full);
         continue;
       }
@@ -192,7 +192,7 @@ export function listFiles(dir: string, opts: ListOptions) {
     truncated,
     /** Pass as --offset to get the next page. */
     nextOffset: truncated ? (opts.offset ?? 0) + files.length : undefined,
-    skippedFolders: [...skippedFolders],
+    skippedPlaces: [...skippedPlaces],
     skippedRecent,
     /** Hidden files and folders left out (see `includeHidden` and `include`). */
     skippedHidden,
@@ -261,7 +261,7 @@ export interface DuplicateGroup {
   size: number;
   /** Copies among the scanned files (relative paths). */
   files: string[];
-  /** Identical files tidybot has seen elsewhere (e.g. already filed in a smart folder). */
+  /** Identical files tidybot has seen elsewhere (e.g. already filed in a place). */
   elsewhere: string[];
 }
 

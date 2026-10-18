@@ -2,7 +2,7 @@ import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { MAX_NAME_BYTES, nameBytes } from "../src/names.js";
 import { findItem, propose, sanitizeName } from "../src/planner.js";
-import { addFolder, saveFolders } from "../src/store/folders.js";
+import { addPlace, savePlaces } from "../src/store/places.js";
 import { caseInsensitiveFs, sandbox, write } from "./helpers.js";
 
 let root: string;
@@ -10,18 +10,18 @@ let dl: string;
 beforeEach(() => {
   root = sandbox();
   dl = path.join(root, "dl");
-  addFolder({ name: "Docs", path: path.join(root, "docs") });
+  addPlace({ name: "Docs", path: path.join(root, "docs") });
 });
 
 
-describe("without smart folders", () => {
+describe("without places", () => {
   it("still accepts renames in place and deletions", async () => {
-    saveFolders([]);
+    savePlaces([]);
     write(path.join(dl, "scan0001.pdf"), "a");
     write(path.join(dl, "copy.pdf"), "b");
-    const plan = await propose([{ file: "scan0001.pdf", folder: null, rename: "lease" }, { file: "copy.pdf", delete: true }], { source: dl });
+    const plan = await propose([{ file: "scan0001.pdf", place: null, rename: "lease" }, { file: "copy.pdf", delete: true }], { source: dl });
     expect(plan.items.map((i) => i.status)).toEqual(["pending", "pending"]);
-    await expect(propose([{ file: "copy.pdf", folder: "Docs" }], { source: dl })).rejects.toThrow(/No smart folders/);
+    await expect(propose([{ file: "copy.pdf", place: "Docs" }], { source: dl })).rejects.toThrow(/No places/);
   });
 });
 
@@ -34,21 +34,21 @@ describe("skipping on purpose", () => {
       [
         { file: "taxes-2023/w2.pdf", skip: true, reason: "already grouped by the user" },
         { file: "taxes-2023/receipt.jpg", skip: true },
-        { file: "misc.pdf", folder: null },
+        { file: "misc.pdf", place: null },
       ],
       { source: dl },
     );
     expect(plan.items.map((i) => [i.status, i.note])).toEqual([
       ["skipped", "left in place by agent"],
       ["skipped", "left in place by agent"],
-      ["skipped", "agent found no matching smart folder"],
+      ["skipped", "agent found no matching place"],
     ]);
-    expect(plan.items[0]).toMatchObject({ folder: null, destination: null, reason: "already grouped by the user" });
+    expect(plan.items[0]).toMatchObject({ place: null, destination: null, reason: "already grouped by the user" });
   });
 
   it("rejects a skip combined with a move, rename or delete", async () => {
     write(path.join(dl, "a.pdf"), "a");
-    for (const extra of [{ folder: "Docs" }, { rename: "b" }, { delete: true }]) {
+    for (const extra of [{ place: "Docs" }, { rename: "b" }, { delete: true }]) {
       await expect(propose([{ file: "a.pdf", skip: true, ...extra }], { source: dl })).rejects.toThrow(/can't also have/);
     }
   });
@@ -77,8 +77,8 @@ describe("case-insensitive conflict warnings", () => {
     write(path.join(dl, "b/x.pdf"), "2");
     const plan = await propose(
       [
-        { file: "a/X.pdf", folder: "Docs" },
-        { file: "b/x.pdf", folder: "Docs" },
+        { file: "a/X.pdf", place: "Docs" },
+        { file: "b/x.pdf", place: "Docs" },
       ],
       { source: dl },
     );
@@ -87,14 +87,14 @@ describe("case-insensitive conflict warnings", () => {
 
   it.runIf(caseInsensitiveFs())("records the file name as spelled on disk", async () => {
     write(path.join(dl, "report.pdf"), "x");
-    const plan = await propose([{ file: "REPORT.pdf", folder: "Docs" }], { source: dl });
+    const plan = await propose([{ file: "REPORT.pdf", place: "Docs" }], { source: dl });
     expect(plan.items[0]?.file).toBe(path.join(dl, "report.pdf"));
   });
 
   it.runIf(caseInsensitiveFs())("warns when an existing file differs only by case", async () => {
     write(path.join(root, "docs/NOTES.txt"), "existing");
     write(path.join(dl, "notes.txt"), "new");
-    const plan = await propose([{ file: "notes.txt", folder: "Docs" }], { source: dl });
+    const plan = await propose([{ file: "notes.txt", place: "Docs" }], { source: dl });
     expect(plan.items[0]?.warnings?.[0]).toMatch(/already exists/);
   });
 });
@@ -105,8 +105,8 @@ describe("plan details", () => {
     write(path.join(dl, "b/x.txt"), "2");
     const plan = await propose(
       [
-        { file: "a/x.txt", folder: "Docs", rename: "one" },
-        { file: "b/x.txt", folder: "Docs", rename: "two" },
+        { file: "a/x.txt", place: "Docs", rename: "one" },
+        { file: "b/x.txt", place: "Docs", rename: "two" },
       ],
       { source: dl },
     );
@@ -114,9 +114,9 @@ describe("plan details", () => {
     expect(findItem(plan, "b/x.txt").newName).toBe("two.txt");
   });
 
-  it("records the rules and folders in effect", async () => {
+  it("records the rules and places in effect", async () => {
     write(path.join(dl, "a.txt"), "1");
-    const plan = await propose([{ file: "a.txt", folder: "Docs" }], { source: dl });
-    expect(plan.context).toMatchObject({ rename: "auto", rules: [], folders: [{ name: "Docs" }] });
+    const plan = await propose([{ file: "a.txt", place: "Docs" }], { source: dl });
+    expect(plan.context).toMatchObject({ rename: "auto", rules: [], places: [{ name: "Docs" }] });
   });
 });

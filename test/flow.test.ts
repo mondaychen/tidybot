@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { applyPlan, forgetMove, selectMoves, undoMoves } from "../src/mover.js";
 import { propose, retarget, skip } from "../src/planner.js";
 import { scan } from "../src/scan.js";
-import { addFolder, importFolders, loadFolders } from "../src/store/folders.js";
+import { addPlace, importPlaces, loadPlaces } from "../src/store/places.js";
 import { loadMoves } from "../src/store/history.js";
 import { loadPlan, planState } from "../src/store/plans.js";
 import { survey } from "../src/survey.js";
@@ -18,27 +18,27 @@ beforeEach(() => {
   write(path.join(dl, "invoice.txt"), "ComEd bill");
   write(path.join(dl, "roadmap.md"), "Q3 roadmap");
   write(path.join(dl, ".hidden"), "x");
-  addFolder({ name: "Bills", path: path.join(root, "docs/bills"), rule: "bills" });
-  addFolder({ name: "Work", path: path.join(root, "docs/work"), rule: "work" });
+  addPlace({ name: "Bills", path: path.join(root, "docs/bills"), rule: "bills" });
+  addPlace({ name: "Work", path: path.join(root, "docs/work"), rule: "work" });
 });
 
-describe("smart folders", () => {
+describe("places", () => {
   it("rejects duplicate names (case-insensitive) and paths", () => {
-    expect(() => addFolder({ name: "bills", path: path.join(root, "other") })).toThrow(/Duplicate/);
-    expect(() => addFolder({ name: "Other", path: path.join(root, "docs/bills/") })).toThrow(/share the path/);
+    expect(() => addPlace({ name: "bills", path: path.join(root, "other") })).toThrow(/Duplicate/);
+    expect(() => addPlace({ name: "Other", path: path.join(root, "docs/bills/") })).toThrow(/share the path/);
   });
 
   it("imports by merging on name, with dry-run", () => {
-    const dry = importFolders([{ name: "Bills", path: "~/bills", rule: "new" }, { name: "Photos", path: "~/Pictures" }], { dryRun: true });
+    const dry = importPlaces([{ name: "Bills", path: "~/bills", rule: "new" }, { name: "Photos", path: "~/Pictures" }], { dryRun: true });
     expect(dry.added.map((f) => f.name)).toEqual(["Photos"]);
     expect(dry.updated.map((f) => f.name)).toEqual(["Bills"]);
-    expect(loadFolders()).toHaveLength(2);
-    importFolders({ folders: [{ name: "Photos", path: "~/Pictures" }] });
-    expect(loadFolders().map((f) => f.name)).toEqual(["Bills", "Work", "Photos"]);
+    expect(loadPlaces()).toHaveLength(2);
+    importPlaces({ places: [{ name: "Photos", path: "~/Pictures" }] });
+    expect(loadPlaces().map((f) => f.name)).toEqual(["Bills", "Work", "Photos"]);
   });
 
   it("pins relative paths to absolute", () => {
-    const f = addFolder({ name: "Rel", path: "some/dir" });
+    const f = addPlace({ name: "Rel", path: "some/dir" });
     expect(path.isAbsolute(f.path)).toBe(true);
   });
 });
@@ -72,9 +72,9 @@ describe("propose → apply → undo", () => {
     propose(
       {
         items: [
-          { file: "invoice.txt", folder: "bills", reason: "utility bill", confidence: 0.9 },
-          { file: "roadmap.md", folder: "Work" },
-          { file: "missing.txt", folder: "Work" },
+          { file: "invoice.txt", place: "bills", reason: "utility bill", confidence: 0.9 },
+          { file: "roadmap.md", place: "Work" },
+          { file: "missing.txt", place: "Work" },
         ],
       },
       { source: dl },
@@ -83,10 +83,10 @@ describe("propose → apply → undo", () => {
   it("validates proposals into item statuses", async () => {
     const plan = await proposeBoth();
     expect(plan.items.map((i) => i.status)).toEqual(["pending", "pending", "invalid"]);
-    expect(plan.items[0]?.folder).toBe("Bills");
-    const bad = await propose([{ file: "invoice.txt", folder: "Nope" }], { source: dl });
-    expect(bad.items[0]).toMatchObject({ status: "invalid", note: 'unknown smart folder "Nope"' });
-    const none = await propose([{ file: "invoice.txt", folder: null }], { source: dl });
+    expect(plan.items[0]?.place).toBe("Bills");
+    const bad = await propose([{ file: "invoice.txt", place: "Nope" }], { source: dl });
+    expect(bad.items[0]).toMatchObject({ status: "invalid", note: 'unknown place "Nope"' });
+    const none = await propose([{ file: "invoice.txt", place: null }], { source: dl });
     expect(none.items[0]?.status).toBe("skipped");
   });
 
@@ -113,11 +113,11 @@ describe("propose → apply → undo", () => {
 
   it("never overwrites; can rename on conflict", async () => {
     write(path.join(root, "docs/bills/invoice.txt"), "existing");
-    const p1 = await propose([{ file: "invoice.txt", folder: "Bills" }], { source: dl });
+    const p1 = await propose([{ file: "invoice.txt", place: "Bills" }], { source: dl });
     expect((await applyPlan(p1)).failed[0]?.error).toMatch(/already exists/);
     expect(fs.readFileSync(path.join(root, "docs/bills/invoice.txt"), "utf8")).toBe("existing");
 
-    const p2 = await propose([{ file: "invoice.txt", folder: "Bills" }], { source: dl });
+    const p2 = await propose([{ file: "invoice.txt", place: "Bills" }], { source: dl });
     const r = await applyPlan(p2, { onConflict: "rename" });
     expect(r.moved[0]?.to).toBe(path.join(root, "docs/bills/invoice (1).txt"));
   });
@@ -132,10 +132,10 @@ describe("propose → apply → undo", () => {
   });
 
   it("appends to an existing plan, later proposals win", async () => {
-    const plan = await propose([{ file: "invoice.txt", folder: "Work" }], { source: dl });
-    await propose([{ file: "invoice.txt", folder: "Bills" }, { file: "roadmap.md", folder: "Work" }], { source: dl, appendTo: loadPlan(plan.id) });
+    const plan = await propose([{ file: "invoice.txt", place: "Work" }], { source: dl });
+    await propose([{ file: "invoice.txt", place: "Bills" }, { file: "roadmap.md", place: "Work" }], { source: dl, appendTo: loadPlan(plan.id) });
     const merged = loadPlan(plan.id);
-    expect(merged.items.map((i) => [path.basename(i.file), i.folder])).toEqual([
+    expect(merged.items.map((i) => [path.basename(i.file), i.place])).toEqual([
       ["invoice.txt", "Bills"],
       ["roadmap.md", "Work"],
     ]);

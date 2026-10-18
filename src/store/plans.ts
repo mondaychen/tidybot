@@ -9,8 +9,8 @@ export type ItemStatus = "pending" | "invalid" | "skipped" | "moved" | "trashed"
 export interface PlanItem {
   /** Absolute path of the file to move. */
   file: string;
-  /** Smart folder name chosen by the agent (or null if user set a raw path / no match). */
-  folder: string | null;
+  /** Place name chosen by the agent (or null if user set a raw path / no match). */
+  place: string | null;
   /** Absolute destination directory. Null when unresolved. */
   destination: string | null;
   /** Delete instead of moving: the file goes to the trash (see `trashDir`). */
@@ -37,7 +37,7 @@ export interface PlanContext {
   naming: string;
   extensionCase?: string;
   rules: string[];
-  folders: { name: string; path: string; rule: string }[];
+  places: { name: string; path: string; rule: string }[];
 }
 
 export interface Plan {

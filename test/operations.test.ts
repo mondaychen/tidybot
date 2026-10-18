@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { applyPlan, selectMoves, undoMoves } from "../src/mover.js";
 import { propose } from "../src/planner.js";
 import { scan } from "../src/scan.js";
-import { addFolder } from "../src/store/folders.js";
+import { addPlace } from "../src/store/places.js";
 import { loadMoves } from "../src/store/history.js";
 import { recoverMoves, withMoveLock } from "../src/store/operations.js";
 import { loadPlan, type Plan } from "../src/store/plans.js";
@@ -23,8 +23,8 @@ beforeEach(async () => {
   root = sandbox();
   from = write(path.join(root, "dl", "report.txt"), "original contents");
   to = path.join(root, "docs", "report.txt");
-  addFolder({ name: "Docs", path: path.dirname(to) });
-  plan = await propose([{ file: from, folder: "Docs" }], { source: path.dirname(from) });
+  addPlace({ name: "Docs", path: path.dirname(to) });
+  plan = await propose([{ file: from, place: "Docs" }], { source: path.dirname(from) });
 });
 
 afterEach(() => {
@@ -212,7 +212,7 @@ describe("existing files at the destination", () => {
 describe("file names spelled differently from the disk", () => {
   it.runIf(caseInsensitiveFs())("fails a conflicting move cleanly", async () => {
     write(path.join(root, "docs", "REPORT.txt"), "someone else's report");
-    const p = await propose([{ file: "REPORT.txt", folder: "Docs" }], { source: path.dirname(from) });
+    const p = await propose([{ file: "REPORT.txt", place: "Docs" }], { source: path.dirname(from) });
     const result = await applyPlan(p);
     expect(result.failed[0]?.error).toMatch(/already exists/);
     expect(journals()).toEqual([]);
@@ -338,7 +338,7 @@ describe("batch metadata", () => {
   it("replays a batch interrupted before its metadata was saved", async () => {
     const second = write(path.join(root, "dl", "second.txt"), "second file");
     await scan(path.dirname(from), { maxFiles: 10, excerptChars: 100 });
-    plan = await propose([{ file: from, folder: "Docs" }, { file: second, folder: "Docs" }], { source: path.dirname(from) });
+    plan = await propose([{ file: from, place: "Docs" }, { file: second, place: "Docs" }], { source: path.dirname(from) });
     interrupt("before-metadata");
     expect(journals()).toHaveLength(2);
     recoverMoves();
@@ -350,7 +350,7 @@ describe("batch metadata", () => {
 
   it("writes the index and plan once per apply, and reads history once", async () => {
     const files = [1, 2, 3, 4, 5].map((n) => write(path.join(root, "dl", `f${n}.txt`), `file ${n}`));
-    const p = await propose(files.map((file) => ({ file, folder: "Docs" })), { source: path.dirname(from) });
+    const p = await propose(files.map((file) => ({ file, place: "Docs" })), { source: path.dirname(from) });
     const rename = fs.renameSync;
     const written: string[] = [];
     vi.spyOn(fs, "renameSync").mockImplementation((source, destination) => {

@@ -6,7 +6,7 @@ import { applyPlan, forgetMove, selectMoves, undoMoves } from "../src/mover.js";
 import { propose, retarget } from "../src/planner.js";
 import { listFiles } from "../src/scan.js";
 import { setConfigValue } from "../src/store/config.js";
-import { addFolder } from "../src/store/folders.js";
+import { addPlace } from "../src/store/places.js";
 import { loadMoves } from "../src/store/history.js";
 import { writeJson } from "../src/store/io.js";
 import { recoverPendingMoves, withMoveLock } from "../src/store/operations.js";
@@ -35,7 +35,7 @@ beforeEach(() => {
   bin = path.join(root, "bin");
   Object.assign(systemTrash, { dir: path.join(root, "system-trash"), calls: [], fail: undefined, keep: false });
   fs.mkdirSync(systemTrash.dir);
-  addFolder({ name: "Docs", path: path.join(root, "docs") });
+  addPlace({ name: "Docs", path: path.join(root, "docs") });
   write(path.join(dl, "report.pdf"), "report");
   write(path.join(dl, "report copy.pdf"), "report");
   onPlatform("darwin");
@@ -54,7 +54,7 @@ describe("deleting to a trash folder", () => {
 
   it("moves the file into the folder, records it, and undoes it", async () => {
     const plan = await deleteCopy();
-    expect(plan.items[0]).toMatchObject({ delete: true, folder: null, destination: null, status: "pending" });
+    expect(plan.items[0]).toMatchObject({ delete: true, place: null, destination: null, status: "pending" });
     const r = await applyPlan(plan);
     expect(r.trashed).toEqual([{ file: path.join(dl, "report copy.pdf"), to: path.join(bin, "report copy.pdf"), operationId: expect.any(String) }]);
     expect(fs.existsSync(path.join(dl, "report copy.pdf"))).toBe(false);
@@ -81,9 +81,9 @@ describe("deleting to a trash folder", () => {
     setConfigValue("trashDir", path.join(dl, "Trash"), "global");
     write(path.join(dl, "Trash", "old.pdf"), "old");
     // runScan adds the trash folder to the skipped folders; this mirrors it.
-    const r = listFiles(dl, { maxFiles: 10, recursive: true, skipFolders: [{ name: "trash folder", path: path.join(dl, "Trash"), rule: "" }] });
+    const r = listFiles(dl, { maxFiles: 10, recursive: true, skipPlaces: [{ name: "trash folder", path: path.join(dl, "Trash"), rule: "" }] });
     expect(r.files.map((f) => f.rel)).not.toContain(path.join("Trash", "old.pdf"));
-    expect(r.skippedFolders).toEqual(["trash folder"]);
+    expect(r.skippedPlaces).toEqual(["trash folder"]);
   });
 });
 
@@ -177,21 +177,21 @@ describe("when deleting is unavailable", () => {
 
 describe("proposing and editing deletions", () => {
   it("validates delete items", async () => {
-    await expect(propose([{ file: "report.pdf", folder: "Docs", delete: true }], { source: dl })).rejects.toThrow(/can't also have a folder/);
-    await expect(propose([{ file: "report.pdf" }], { source: dl })).rejects.toThrow(/needs `folder`/);
+    await expect(propose([{ file: "report.pdf", place: "Docs", delete: true }], { source: dl })).rejects.toThrow(/can't also have a place/);
+    await expect(propose([{ file: "report.pdf" }], { source: dl })).rejects.toThrow(/needs `place`/);
     const plan = await propose([{ file: "report copy.pdf", delete: true, rename: "x" }], { source: dl });
     expect(plan.items[0]?.warnings).toEqual(["rename ignored: the file is being deleted"]);
   });
 
   it("lets the user switch an item between moving and deleting", async () => {
-    const plan = await propose([{ file: "report copy.pdf", folder: "Docs" }], { source: dl });
+    const plan = await propose([{ file: "report copy.pdf", place: "Docs" }], { source: dl });
     expect(retarget(plan, "report copy.pdf", { delete: true })).toMatchObject({ delete: true, destination: null, status: "pending" });
     expect(() => retarget(plan, "report copy.pdf", { name: "other" })).toThrow(/set to be deleted/);
-    expect(retarget(plan, "report copy.pdf", { folder: "Docs" })).toMatchObject({ delete: undefined, folder: "Docs" });
+    expect(retarget(plan, "report copy.pdf", { place: "Docs" })).toMatchObject({ delete: undefined, place: "Docs" });
   });
 
   it("previews moves and deletions separately", async () => {
-    const plan = await propose([{ file: "report.pdf", folder: "Docs" }, { file: "report copy.pdf", delete: true }], { source: dl });
+    const plan = await propose([{ file: "report.pdf", place: "Docs" }, { file: "report copy.pdf", delete: true }], { source: dl });
     const preview = await applyPlan(plan, { dryRun: true });
     expect(preview.wouldMove?.map((m) => path.basename(m.file))).toEqual(["report.pdf"]);
     expect(preview.wouldTrash?.map((f) => path.basename(f))).toEqual(["report copy.pdf"]);

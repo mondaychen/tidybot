@@ -33,7 +33,7 @@ export function projectDir(): string | undefined {
   }
 }
 
-/** Directory holding settings (config, folders) for the active scope. */
+/** Directory holding settings (config, places) for the active scope. */
 export function settingsDir(): string {
   return projectDir() ?? tidybotHome();
 }

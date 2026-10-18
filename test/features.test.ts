@@ -6,7 +6,7 @@ import { projectDir } from "../src/paths.js";
 import { propose, retarget, sanitizeName } from "../src/planner.js";
 import { scan } from "../src/scan.js";
 import { addRule, loadConfig, loadRules, removeRule, setConfigValue } from "../src/store/config.js";
-import { addFolder, loadFolders, saveFolders } from "../src/store/folders.js";
+import { addPlace, loadPlaces, savePlaces } from "../src/store/places.js";
 import { findSummaries } from "../src/store/summaries.js";
 import { getSummaries, listSummaries, saveSummaries } from "../src/summarize.js";
 import { sandbox, write } from "./helpers.js";
@@ -16,8 +16,8 @@ let dl: string;
 beforeEach(() => {
   root = sandbox();
   dl = path.join(root, "dl");
-  addFolder({ name: "Legal", path: path.join(root, "docs/legal"), rule: "immigration and legal" });
-  addFolder({ name: "Photos", path: path.join(root, "docs/photos"), rule: "pictures" });
+  addPlace({ name: "Legal", path: path.join(root, "docs/legal"), rule: "immigration and legal" });
+  addPlace({ name: "Photos", path: path.join(root, "docs/photos"), rule: "pictures" });
 });
 
 describe("smart rename", () => {
@@ -32,7 +32,7 @@ describe("smart rename", () => {
 
   it("moves with a new name and undo restores the original name", async () => {
     write(path.join(dl, "3f2a9c1e.pdf"), "x");
-    const plan = await propose([{ file: "3f2a9c1e.pdf", folder: "Legal", rename: "2023-05-01 I-485 receipt notice" }], { source: dl });
+    const plan = await propose([{ file: "3f2a9c1e.pdf", place: "Legal", rename: "2023-05-01 I-485 receipt notice" }], { source: dl });
     expect(plan.items[0]?.newName).toBe("2023-05-01 I-485 receipt notice.pdf");
     await applyPlan(plan);
     expect(fs.existsSync(path.join(root, "docs/legal/2023-05-01 I-485 receipt notice.pdf"))).toBe(true);
@@ -40,9 +40,9 @@ describe("smart rename", () => {
     expect(fs.existsSync(path.join(dl, "3f2a9c1e.pdf"))).toBe(true);
   });
 
-  it("renames in place when folder is null", async () => {
+  it("renames in place when place is null", async () => {
     write(path.join(dl, "scan0001.txt"), "x");
-    const plan = await propose([{ file: "scan0001.txt", folder: null, rename: "lease" }], { source: dl });
+    const plan = await propose([{ file: "scan0001.txt", place: null, rename: "lease" }], { source: dl });
     expect(plan.items[0]?.status).toBe("pending");
     await applyPlan(plan);
     expect(fs.existsSync(path.join(dl, "lease.txt"))).toBe(true);
@@ -55,9 +55,9 @@ describe("smart rename", () => {
     write(path.join(dl, "b/x.txt"), "2");
     const plan = await propose(
       [
-        { file: "notice.txt", folder: "Legal" },
-        { file: "a/x.txt", folder: "Legal" },
-        { file: "b/x.txt", folder: "Legal" },
+        { file: "notice.txt", place: "Legal" },
+        { file: "a/x.txt", place: "Legal" },
+        { file: "b/x.txt", place: "Legal" },
       ],
       { source: dl },
     );
@@ -71,7 +71,7 @@ describe("smart rename", () => {
   it("ignores renames when rename mode is off", async () => {
     setConfigValue("rename", "off");
     write(path.join(dl, "a.txt"), "x");
-    const plan = await propose([{ file: "a.txt", folder: "Legal", rename: "b" }], { source: dl });
+    const plan = await propose([{ file: "a.txt", place: "Legal", rename: "b" }], { source: dl });
     expect(plan.items[0]?.newName).toBeUndefined();
     expect(plan.items[0]?.warnings?.[0]).toMatch(/rename ignored/);
   });
@@ -92,15 +92,15 @@ describe("rules & config", () => {
 });
 
 describe("per-project settings", () => {
-  it("project folders replace global ones and config/rules layer on top", () => {
+  it("project places replace global ones and config/rules layer on top", () => {
     addRule("global rule");
     setConfigValue("maxFiles", "50");
     const proj = path.join(root, "proj");
-    saveFolders([{ name: "Specs", path: path.join(proj, "specs"), rule: "" }], path.join(proj, ".tidybot/folders.yaml"));
+    savePlaces([{ name: "Specs", path: path.join(proj, "specs"), rule: "" }], path.join(proj, ".tidybot/places.yaml"));
     vi.stubEnv("TIDYBOT_NO_PROJECT", "");
     vi.stubEnv("TIDYBOT_PROJECT", proj);
     expect(projectDir()).toBe(path.join(proj, ".tidybot"));
-    expect(loadFolders().map((f) => f.name)).toEqual(["Specs"]);
+    expect(loadPlaces().map((f) => f.name)).toEqual(["Specs"]);
     addRule("project rule");
     setConfigValue("excerptChars", "300");
     expect(loadConfig()).toMatchObject({ source: proj, maxFiles: 50, excerptChars: 300, rules: ["global rule", "project rule"] });
@@ -108,25 +108,25 @@ describe("per-project settings", () => {
 
     vi.stubEnv("TIDYBOT_NO_PROJECT", "1");
     expect(loadConfig().excerptChars).toBe(1000);
-    expect(loadFolders().map((f) => f.name)).toEqual(["Legal", "Photos"]);
+    expect(loadPlaces().map((f) => f.name)).toEqual(["Legal", "Photos"]);
   });
 });
 
 describe("recursive scan", () => {
-  it("skips smart folders below the scan root unless asked", async () => {
+  it("skips places below the scan root unless asked", async () => {
     const home = path.join(root, "home-dir");
-    addFolder({ name: "Bills", path: path.join(home, "bills") });
+    addPlace({ name: "Bills", path: path.join(home, "bills") });
     write(path.join(home, "loose.txt"), "x");
     write(path.join(home, "bills/old.txt"), "x");
     write(path.join(home, "misc/new.txt"), "x");
-    const folders = loadFolders();
-    const r = await scan(home, { recursive: true, maxFiles: 50, excerptChars: 0, skipFolders: folders, noHash: true });
+    const places = loadPlaces();
+    const r = await scan(home, { recursive: true, maxFiles: 50, excerptChars: 0, skipPlaces: places, noHash: true });
     expect(r.files.map((f) => f.rel).sort()).toEqual(["loose.txt", path.join("misc", "new.txt")]);
-    expect(r.skippedFolders).toEqual(["Bills"]);
+    expect(r.skippedPlaces).toEqual(["Bills"]);
     const all = await scan(home, { recursive: true, maxFiles: 50, excerptChars: 0, noHash: true });
     expect(all.files).toHaveLength(3);
-    // scanning a smart folder directly still works
-    const inside = await scan(path.join(home, "bills"), { recursive: true, maxFiles: 50, excerptChars: 0, skipFolders: folders, noHash: true });
+    // scanning a place directly still works
+    const inside = await scan(path.join(home, "bills"), { recursive: true, maxFiles: 50, excerptChars: 0, skipPlaces: places, noHash: true });
     expect(inside.files).toHaveLength(1);
   });
 });
@@ -157,12 +157,12 @@ describe("summaries", () => {
   it("requires image summaries before proposing, then caches by hash across moves", async () => {
     const img = write(path.join(dl, "IMG_1234.jpg"), Buffer.from([0xff, 0xd8, 1, 2]));
     await scan(dl, { maxFiles: 10, excerptChars: 100 });
-    const blocked = await propose([{ file: "IMG_1234.jpg", folder: "Photos" }], { source: dl });
+    const blocked = await propose([{ file: "IMG_1234.jpg", place: "Photos" }], { source: dl });
     expect(blocked.items[0]).toMatchObject({ status: "invalid" });
     expect(blocked.items[0]?.note).toMatch(/summary/);
 
     await saveSummaries([{ file: img, summary: "Photo of a Costco receipt dated 2026-03-02", keywords: ["Receipt", "costco"] }], { base: dl, model: "haiku" });
-    const plan = await propose([{ file: "IMG_1234.jpg", folder: "Photos", rename: "2026-03-02 costco receipt" }], { source: dl });
+    const plan = await propose([{ file: "IMG_1234.jpg", place: "Photos", rename: "2026-03-02 costco receipt" }], { source: dl });
     expect(plan.items[0]?.status).toBe("pending");
     await applyPlan(plan);
 

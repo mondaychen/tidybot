@@ -19,7 +19,7 @@ const fields = {
   previewChars: z.number().int().min(0),
   /** Default age filter for scans, e.g. "14d" ("" = off). Recent files are left alone. */
   olderThan: z.string().regex(/^$|^\d+(\.\d+)?\s*[hdwmy]$/i, "use e.g. 12h, 14d, 2w, 3m, 1y"),
-  /** Skip files already inside a smart folder when scanning. */
+  /** Skip files already inside a place when scanning. */
   skipOrganized: z.boolean(),
   /** auto: agent renames unhelpful names and conflicts; always: every file; off: never. */
   rename: z.enum(RENAME_MODES),
@@ -31,7 +31,7 @@ const fields = {
   historyMaxMoves: z.number().int().min(0),
   /** Summaries kept in summaries.jsonl, most recently written first (0 = unlimited). */
   summariesMax: z.number().int().min(0),
-  /** Extra instructions that don't belong to a single smart folder. */
+  /** Extra instructions that don't belong to a single place. */
   rules: z.array(z.string()),
   /** Sensitive-detection rule ids turned off (see `tidybot sensitive rules`). */
   allowRules: z.array(z.string()),

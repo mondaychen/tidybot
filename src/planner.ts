@@ -10,7 +10,7 @@ import { resolvePath } from "./paths.js";
 import { isImage } from "./scan.js";
 import { sensitiveByName } from "./sensitive.js";
 import { type Config, loadConfig } from "./store/config.js";
-import { findFolder, loadFolders, type SmartFolder } from "./store/folders.js";
+import { findPlace, loadPlaces, type Place } from "./store/places.js";
 import { type Plan, type PlanItem, newPlanId, planState, savePlan, targetPath } from "./store/plans.js";
 import { FileIndex, loadSummaries } from "./store/summaries.js";
 import { type TrashStatus, trashStatus } from "./trash.js";
@@ -19,8 +19,8 @@ import { type TrashStatus, trashStatus } from "./trash.js";
 export const ProposalSchema = z
   .object({
     file: z.string().min(1),
-    /** Smart folder name, or null when none fits. Omitted when deleting. */
-    folder: z.string().nullable().optional(),
+    /** Place name, or null when none fits. Omitted when deleting. */
+    place: z.string().nullable().optional(),
     /** Delete the file instead: it goes to the trash. */
     delete: z.boolean().optional(),
     /** Leave the file where it is on purpose (user's rules, or it already looks organized). */
@@ -32,11 +32,11 @@ export const ProposalSchema = z
     reason: z.string().optional(),
     confidence: z.number().min(0).max(1).optional(),
   })
-  .refine((p) => p.delete || p.skip || p.folder !== undefined, {
-    message: "each item needs `folder` (null when none fits), `delete: true`, or `skip: true`",
+  .refine((p) => p.delete || p.skip || p.place !== undefined, {
+    message: "each item needs `place` (null when none fits), `delete: true`, or `skip: true`",
   })
-  .refine((p) => !p.delete || !p.folder, { message: "an item to delete can't also have a folder" })
-  .refine((p) => !p.skip || (!p.delete && !p.folder && !p.rename), { message: "an item to skip can't also have a folder, a rename or `delete`" });
+  .refine((p) => !p.delete || !p.place, { message: "an item to delete can't also have a place" })
+  .refine((p) => !p.skip || (!p.delete && !p.place && !p.rename), { message: "an item to skip can't also have a place, a rename or `delete`" });
 export const ProposeInputSchema = z.union([
   z.array(ProposalSchema),
   z.object({ source: z.string().optional(), items: z.array(ProposalSchema) }),
@@ -69,7 +69,7 @@ export function sanitizeName(proposed: string, original: string, config?: Pick<C
 interface ProposeContext {
   source: string;
   trash: TrashStatus;
-  folders: SmartFolder[];
+  places: Place[];
   config: Pick<Config, "rename" | "extensionCase">;
   requireImageSummaries: boolean;
   allowRules: ReadonlySet<string>;
@@ -79,7 +79,7 @@ interface ProposeContext {
 function toItem(p: Proposal, ctx: ProposeContext): PlanItem {
   // On case-insensitive filesystems, record the name as stored rather than as typed.
   const file = onDiskPath(resolvePath(p.file, ctx.source));
-  const item: PlanItem = { file, folder: p.folder ?? null, destination: null, reason: p.reason, confidence: p.confidence, status: "pending" };
+  const item: PlanItem = { file, place: p.place ?? null, destination: null, reason: p.reason, confidence: p.confidence, status: "pending" };
   const invalid = (note: string): PlanItem => ({ ...item, status: "invalid", note });
 
   if (!fs.existsSync(file) || !fs.statSync(file).isFile()) return invalid("file not found");
@@ -105,15 +105,15 @@ function toItem(p: Proposal, ctx: ProposeContext): PlanItem {
       }
     }
   }
-  if (p.folder == null) {
-    if (!item.newName) return { ...item, status: "skipped", note: "agent found no matching smart folder" };
+  if (p.place == null) {
+    if (!item.newName) return { ...item, status: "skipped", note: "agent found no matching place" };
     item.destination = path.dirname(file); // rename in place
     return item;
   }
-  const folder = findFolder(ctx.folders, p.folder);
-  if (!folder) return invalid(`unknown smart folder "${p.folder}"`);
-  item.folder = folder.name;
-  item.destination = resolvePath(folder.path);
+  const place = findPlace(ctx.places, p.place);
+  if (!place) return invalid(`unknown place "${p.place}"`);
+  item.place = place.name;
+  item.destination = resolvePath(place.path);
   if (targetPath(item) === file) return { ...item, status: "skipped", note: "already in place" };
   return item;
 }
@@ -154,10 +154,10 @@ export async function propose(
   const source = resolvePath(opts.appendTo?.source ?? (Array.isArray(data) ? undefined : data.source) ?? opts.source);
   if (proposals.length === 0) throw new TidyError("Proposal has no items.", "invalid_input");
 
-  const folders = loadFolders();
-  // Renames in place and deletions need no smart folder.
-  if (folders.length === 0 && proposals.some((p) => typeof p.folder === "string")) {
-    throw new TidyError("No smart folders configured. Add some with `tidybot folders add`.");
+  const places = loadPlaces();
+  // Renames in place and deletions need no place.
+  if (places.length === 0 && proposals.some((p) => typeof p.place === "string")) {
+    throw new TidyError("No places configured. Add some with `tidybot places add`.");
   }
   if (opts.appendTo && planState(opts.appendTo) === "discarded") throw new TidyError(`Plan ${opts.appendTo.id} was discarded.`);
 
@@ -167,7 +167,7 @@ export async function propose(
   const ctx: ProposeContext = {
     source,
     trash: trashStatus(config),
-    folders,
+    places,
     config,
     requireImageSummaries: !opts.allowUnsummarized,
     allowRules: new Set(config.allowRules),
@@ -192,7 +192,7 @@ export async function propose(
     naming: config.naming,
     extensionCase: config.extensionCase,
     rules: config.rules,
-    folders,
+    places,
   };
   savePlan(plan);
   return plan;
@@ -216,10 +216,10 @@ export function findItem(plan: Plan, file: string): PlanItem {
   return item;
 }
 
-type Target = { folder?: string; path?: string; name?: string | null; delete?: boolean };
+type Target = { place?: string; path?: string; name?: string | null; delete?: boolean };
 
 /**
- * Human override: point an item at another smart folder or any directory, and/or change its new name,
+ * Human override: point an item at another place or any directory, and/or change its new name,
  * or mark it for deletion. `name: null` keeps the original filename.
  */
 export function retarget(plan: Plan, file: string, target: Target): PlanItem {
@@ -230,7 +230,7 @@ export function retarget(plan: Plan, file: string, target: Target): PlanItem {
 export function retargetAll(plan: Plan, files: string[], target: Target): PlanItem[] {
   if (files.length > 1 && target.name) throw new TidyError("A new name applies to one file only.", "invalid_input");
   const ctx = {
-    folders: target.folder ? loadFolders() : [],
+    places: target.place ? loadPlaces() : [],
     trash: target.delete ? trashStatus(loadConfig()) : undefined,
     config: target.name ? loadConfig() : undefined,
   };
@@ -243,25 +243,25 @@ export function retargetAll(plan: Plan, files: string[], target: Target): PlanIt
   return files.map((f) => findItem(plan, f));
 }
 
-function setTarget(item: PlanItem, target: Target, ctx: { folders: SmartFolder[]; trash?: TrashStatus; config?: Config }): PlanItem {
+function setTarget(item: PlanItem, target: Target, ctx: { places: Place[]; trash?: TrashStatus; config?: Config }): PlanItem {
   if (target.delete) {
-    if (target.folder || target.path || target.name) throw new TidyError("A file to delete has no destination or new name.", "invalid_input");
+    if (target.place || target.path || target.name) throw new TidyError("A file to delete has no destination or new name.", "invalid_input");
     const trash = ctx.trash as TrashStatus;
     if (!trash.enabled) throw new TidyError(trash.reason, "trash_disabled");
-    return Object.assign(item, { delete: true, folder: null, destination: null, newName: undefined, status: "pending", note: "edited by user" });
+    return Object.assign(item, { delete: true, place: null, destination: null, newName: undefined, status: "pending", note: "edited by user" });
   }
-  if (item.delete && !target.folder && !target.path) throw new TidyError("This file is set to be deleted. Give a smart folder or --path to move it instead.");
+  if (item.delete && !target.place && !target.path) throw new TidyError("This file is set to be deleted. Give a place or --path to move it instead.");
   item.delete = undefined;
-  if (target.folder) {
-    const folder = findFolder(ctx.folders, target.folder);
-    if (!folder) throw new TidyError(`No smart folder named "${target.folder}"`, "not_found");
-    item.folder = folder.name;
-    item.destination = resolvePath(folder.path);
+  if (target.place) {
+    const place = findPlace(ctx.places, target.place);
+    if (!place) throw new TidyError(`No place named "${target.place}"`, "not_found");
+    item.place = place.name;
+    item.destination = resolvePath(place.path);
   } else if (target.path) {
-    item.folder = null;
+    item.place = null;
     item.destination = resolvePath(target.path);
   } else if (target.name === undefined) {
-    throw new TidyError("Give a smart folder name, --path, --name, --keep-name or --delete.");
+    throw new TidyError("Give a place name, --path, --name, --keep-name or --delete.");
   }
   if (target.name === null) item.newName = undefined;
   else if (target.name !== undefined) item.newName = sanitizeName(target.name, item.file, ctx.config);

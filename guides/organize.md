@@ -1,11 +1,11 @@
 # tidybot: organizing files (agent instructions)
 
-You decide which smart folder each file belongs in, and optionally a better name.
+You decide which place each file belongs in, and optionally a better name.
 tidybot gathers the facts and performs the moves; a human reviews your plan first.
 
 ## Steps
 1. `tidybot scan [dir]` (add `-r` for subfolders) returns a **compact** view (field names as in `--json` output):
-   - `folders`: smart folders (name, path, rule)
+   - `places`: places, the destination folders (name, path, rule)
    - `rules`, `naming`, `rename`, `extensionCase`: the user's extra instructions, naming style, rename mode,
      and whether renamed files get a lowercase extension
    - `trash`: whether you may propose deleting files (`enabled`), and where they'd go
@@ -20,7 +20,7 @@ tidybot gathers the facts and performs the moves; a human reviews your plan firs
    - `skippedDirs`: subfolders a scan without `-r` left out. `extractedArchives`: an archive next to the
      folder it was extracted into (`export.zip` and `export/`).
    - `nextOffset`: present when there are more files; scan again with `--offset <n>`.
-   Files already inside a smart folder are skipped (`skippedFolders`). So are recent files
+   Files already inside a place are skipped (`skippedPlaces`). So are recent files
    when the user configured `olderThan` (`skippedRecent`); pass `--older-than 14d` yourself if
    they say to leave recent downloads alone.
 2. When the preview isn't enough to decide, get the full text for just those files:
@@ -28,14 +28,14 @@ tidybot gathers the facts and performs the moves; a human reviews your plan firs
 3. If any file has `needsSummary`, do the summarize step (`tidybot guide summarize`).
    Images need a summary unless the filename already says what the image is: then propose it
    with `"summarySkipped": "<why the name is enough>"` (e.g. "Passport Photo IMG 1360.JPG").
-4. For every file choose exactly one smart folder **by name**, or `null` when nothing
-   fits. Never invent folders or paths. Optionally propose a new name (see Renaming),
+4. For every file choose exactly one place **by name**, or `null` when nothing
+   fits. Never invent places or paths. Optionally propose a new name (see Renaming),
    propose deleting the file instead (see Deleting), or leave it where it is on purpose
    (see Leaving files in place).
 5. Submit on stdin, so a large plan doesn't hit the command-line length limit:
    ```
    tidybot propose --source <dir> --data - <<'EOF'
-   {"items":[{"file":"<rel>","folder":"<name>","rename":"<new name or omit>","reason":"<short why>","confidence":0.9}]}
+   {"items":[{"file":"<rel>","place":"<name>","rename":"<new name or omit>","reason":"<short why>","confidence":0.9}]}
    EOF
    ```
    `--data '<json>'` also works for a few items. This writes a plan; it moves nothing.
@@ -43,19 +43,19 @@ tidybot gathers the facts and performs the moves; a human reviews your plan firs
    whether the two files are `identical` or `different`. For identical files, propose deleting the
    copy instead. For different files, re-propose with a different `rename` using `--append`.
 7. For `duplicates`, propose deleting the extra copies when deleting is enabled (keep the one
-   already in a smart folder, or else the best-named one). Otherwise tell the user which copies
+   already in a place, or else the best-named one). Otherwise tell the user which copies
    they could delete. Tell the user about `sensitive` files separately.
 8. Show the human `tidybot plan show`; apply their edits with
-   `tidybot plan set <file>... --folder <name>`, `tidybot plan set <file> --name <new>` (or `--keep-name`)
+   `tidybot plan set <file>... --place <name>`, `tidybot plan set <file> --name <new>` (or `--keep-name`)
    and `tidybot plan skip <file>...`. For many different changes, re-propose those items with `--append`.
 9. Only after the human approves: `tidybot apply --yes`. Undo: `tidybot undo --last`.
    Files sent to the system Trash can't be undone by tidybot; the user restores them from the Trash.
 
 ## How to judge
-- The user's `rules` apply to everything; a folder's `rule` outranks its name.
+- The user's `rules` apply to everything; a place's `rule` outranks its name.
 - Use filename, type, excerpt and summary together. Excerpts may be empty (images,
   archives, scanned PDFs): rely on the summary, filename and type.
-- Prefer the most specific folder that matches (e.g. "Bills" over "Personal").
+- Prefer the most specific place that matches (e.g. "Bills" over "Personal").
 - Use `null` rather than guessing when unsure; give a reason.
 - `confidence` is 0–1 and optional. Keep `reason` under ~15 words.
 
@@ -67,24 +67,24 @@ conflict; **always** = give every file a name following the naming style.
   (YYYY-MM-DD first when the user has no preference), no special characters.
 - `rename` is the file name only (no folders). The extension is kept automatically. With
   `extensionCase: lower`, tidybot makes it lowercase (`.HEIC` → `.heic`).
-- To rename without moving, use `"folder": null` together with `"rename"`.
+- To rename without moving, use `"place": null` together with `"rename"`.
 
 ## Examples
-- "May 02 Chase scan.pdf", no excerpt, folders [Legal, Bills, Bank statements, Work]
-  -> folder "Bank statements", rename omitted (name is already fine)
+- "May 02 Chase scan.pdf", no excerpt, places [Legal, Bills, Bank statements, Work]
+  -> place "Bank statements", rename omitted (name is already fine)
 - "3f2a9c1e-77b0-4d1a.pdf", excerpt "Form I-485 ... Receipt Notice ... May 01, 2023"
-  -> folder "Legal", rename "2023-05-01 I-485 receipt notice"
+  -> place "Legal", rename "2023-05-01 I-485 receipt notice"
 
 ## Leaving files in place
-Propose `{"file": "<rel>", "skip": true, "reason": "<why>"}` (no folder, rename or delete) for a
+Propose `{"file": "<rel>", "skip": true, "reason": "<why>"}` (no place, rename or delete) for a
 file you leave where it is on purpose. The plan shows it as skipped, "left in place by agent".
-Use `"folder": null` only when you looked for a folder and none fits.
+Use `"place": null` only when you looked for a place and none fits.
 Skip a file when:
 - The user's `rules` say to leave it alone (e.g. "don't touch ~/Downloads/Projects").
 - It's in a subfolder the user already organized by hand (you see these with `-r`; without it, they
   are only listed in `skippedDirs`). Signs: a
   descriptive folder name ("taxes-2023", "Wedding photos", "client-acme") and files that belong
-  together. Skip all of its files, so you don't split the folder across smart folders. A subfolder
+  together. Skip all of its files, so you don't split the folder across places. A subfolder
   with a generic name ("New Folder", "Archive (2)", an unzipped download) full of unrelated files
   isn't organized: file those normally.
 Rules:
@@ -95,7 +95,7 @@ Rules:
 ## Sensitive files
 Files with `sensitive` (recovery codes, keys, credentials…) have no preview on purpose.
 Don't open them. Point them out and suggest a password manager, then deleting the file.
-Only propose a folder for them if the user asks.
+Only propose a place for them if the user asks.
 
 Detection errs on the side of flagging; `sensitiveRule` says which rule fired
 (`tidybot sensitive rules` lists them all). Handling false positives:
@@ -124,14 +124,14 @@ plan with `tidybot propose --append`. `--match '*.pdf'` narrows a scan by name.
 
 ## Deleting
 Deleted files go to the trash, never straight away: the system Trash / Recycle Bin, or the
-user's `trashDir` folder. Propose `{"file": "<rel>", "delete": true, "reason": "<why>"}` (no folder).
+user's `trashDir` folder. Propose `{"file": "<rel>", "delete": true, "reason": "<why>"}` (no place).
 - Only when `trash.enabled` is true in the scan. If it's false, say why (`trash.reason`) instead.
 - Only for exact `duplicates` (never the last copy), or files the user's `rules` say to delete,
   or files the user agreed to delete.
   Don't delete a file just because it looks old or unimportant.
 - Don't delete `sensitive` files unless the user asks.
 - The user can switch an item with `tidybot plan set <file> --delete`, or back with
-  `tidybot plan set <file> <folder>`.
+  `tidybot plan set <file> <place>`.
 
 ## Hidden files
 Scans leave out hidden files and folders (dotfiles, and whatever the OS marks hidden); `skippedHidden`

@@ -15,23 +15,23 @@ export interface DirSummary {
   subdirs: number;
   topExtensions: { ext: string; count: number }[];
   sampleNames: string[];
-  /** Name of the smart folder at this path, if any. */
-  smartFolder?: string;
+  /** Name of the place at this path, if any. */
+  place?: string;
 }
 
 export interface SurveyOptions extends HiddenOptions {
   depth: number;
   samples: number;
   maxDirs: number;
-  /** Smart folders to annotate in the output. */
-  folders?: { name: string; path: string }[];
+  /** Places to annotate in the output. */
+  places?: { name: string; path: string }[];
 }
 
-/** Never useful for proposing folders. (~/Library is skipped as a hidden folder on macOS.) */
+/** Never useful for proposing places. (~/Library is skipped as a hidden folder on macOS.) */
 const SKIP = new Set(["node_modules", ".git", "__pycache__", ".venv"]);
 
 /**
- * Summarize existing directory structure so an agent can propose smart folders.
+ * Summarize existing directory structure so an agent can propose places.
  * Returns one row per directory, breadth-limited by depth and maxDirs.
  */
 export interface SurveyResult {
@@ -46,7 +46,7 @@ export function survey(root: string, opts: SurveyOptions): SurveyResult {
   assertDir(root);
   const dirs: DirSummary[] = [];
   const truncatedBy = new Set<SurveyResult["truncatedBy"][number]>();
-  const smart = new Map((opts.folders ?? []).map((f) => [resolvePath(f.path), f.name]));
+  const placeAt = new Map((opts.places ?? []).map((f) => [resolvePath(f.path), f.name]));
   const hiddenIn = hiddenFilter(root, opts);
 
   const visit = (dir: string, depth: number): number => {
@@ -78,7 +78,7 @@ export function survey(root: string, opts: SurveyOptions): SurveyResult {
               .slice(0, 5)
               .map(([ext, count]) => ({ ext, count })),
             sampleNames: fileNames.slice(0, opts.samples),
-            ...(smart.has(dir) ? { smartFolder: smart.get(dir) } : {}),
+            ...(placeAt.has(dir) ? { place: placeAt.get(dir) } : {}),
           }
         : undefined;
     if (row) dirs.push(row);

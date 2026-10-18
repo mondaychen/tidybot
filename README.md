@@ -1,6 +1,6 @@
 # tidybot
 
-A CLI for sorting a messy directory (like `~/Downloads`) into **smart folders**:
+A CLI for sorting a messy directory (like `~/Downloads`) into **places**:
 destination directories that each have a natural-language rule. It can also give badly named files
 (UUIDs, `scan0001.pdf`, `IMG_1234.jpg`) names based on what's in them, and help you find files later
 by content.
@@ -12,7 +12,7 @@ decisions into a plan you can review, then does the moves with a full undo histo
 ```
 agent:  tidybot summary todo ~/Downloads        → files that need a summary (images: required)
 agent:  (subagents on a cheap model read them)  → tidybot summary save --data '[...]'
-agent:  tidybot scan ~/Downloads --json         → compact list: previews/summaries, duplicates, folders, rules
+agent:  tidybot scan ~/Downloads --json         → compact list: previews/summaries, duplicates, places, rules
 agent:  tidybot inspect <files> --json          → full text for the few files the preview didn't settle
 agent:  tidybot propose --data '{...}'          → plan with moves and renames (nothing moved yet)
 you:    tidybot plan show / plan set / skip     → review and edit
@@ -31,8 +31,8 @@ repeatable:
 - **You can undo.** Each move goes into a history. `tidybot undo` puts files back and restores their
   original names. A move never overwrites a file, and tidybot recovers interrupted moves. tidybot
   doesn't delete files permanently: they go to the Trash or to a folder that you choose.
-- **Your setup stays.** Smart folders, rules and naming style are saved. Each session follows them,
-  so you don't explain your folders again, and results are the same from one run to the next.
+- **Your setup stays.** Places, rules and naming style are saved. Each session follows them,
+  so you don't explain your places again, and results are the same from one run to the next.
 - **It reads files that `cat` can't.** tidybot has built-in readers. They get the text from PDF
   (also PDFs with CJK fonts), DOCX, PPTX and XLSX files, and from text files in UTF-16 or
   Windows-1252. `tidybot preview` makes a small JPEG of a HEIC or WebP image, or of a PDF's first
@@ -64,26 +64,26 @@ Requires Node 20+.
 | Command | What it does |
 |---|---|
 | `guide [overview\|organize\|summarize\|onboard]` | Instructions for the agent. `overview` (the default) is the entry point: overall workflow and rules. The others cover how to judge, renaming, onboarding and the subagent prompt |
-| `scan [dir] [-r] [--older-than 14d] [--offset n] [--full] [--include-hidden] [--include <glob>]` | Compact list of files (type, size, date, summary or short preview, flags: `sensitive`, `duplicate`, `similar`, `needsSummary`, `more`), plus duplicate groups, similar files, smart folders, rules, naming style and rename mode. Skips hidden files, files already in smart folders and, if asked, recent ones. Without `-r`, lists the subfolders it left out (`skippedDirs`). Pages with `nextOffset` |
+| `scan [dir] [-r] [--older-than 14d] [--offset n] [--full] [--include-hidden] [--include <glob>]` | Compact list of files (type, size, date, summary or short preview, flags: `sensitive`, `duplicate`, `similar`, `needsSummary`, `more`), plus duplicate groups, similar files, places, rules, naming style and rename mode. Skips hidden files, files already in places and, if asked, recent ones. Without `-r`, lists the subfolders it left out (`skippedDirs`). Pages with `nextOffset` |
 | `inspect <files...>` | Full excerpt and details for specific files (step 2 after `scan`) |
 | `summary todo [dir] [-r]` | Files that still need a summary. Identical copies are listed once |
 | `summary save [--data] [--model]` | Stores agent-written summaries: `[{file, summary, keywords[]}]` |
 | `summary get <files...>` / `summary list` | Reads summaries back (`list` is for semantic search on the agent side) |
-| `propose [--data] [--append] [--allow-unsummarized]` | Saves `{file, folder, rename?, reason, confidence}` choices as a plan, or `{file, delete: true, reason}` to delete a file. Moves nothing. `--data -` reads stdin |
+| `propose [--data] [--append] [--allow-unsummarized]` | Saves `{file, place, rename?, reason, confidence}` choices as a plan, or `{file, delete: true, reason}` to delete a file. Moves nothing. `--data -` reads stdin |
 | `preview <files...> [--out dir]` | Writes a small JPEG of an image (HEIC, WebP, …) or of a PDF's first page, for agents whose image tools can't open them. Uses `sips` on macOS, ImageMagick elsewhere |
 | `survey <dirs...> [--include-hidden] [--include <glob>]` | Summarizes existing folder trees, for onboarding. Skips hidden folders |
-| `folders import [--data] [--dry-run]` | Adds or updates many smart folders at once |
+| `places import [--data] [--dry-run]` | Adds or updates many places at once |
 
 **Human-facing**
 
 | Command | What it does |
 |---|---|
-| `plan list \| show \| set \| skip \| discard` | Review and edit. `plan set <files...> [--folder f \| --path d \| --delete]`, `plan set <file> --name n` (or `--keep-name`). `plan set <file> <folder>` also works |
+| `plan list \| show \| set \| skip \| discard` | Review and edit. `plan set <files...> [--place p \| --path d \| --delete]`, `plan set <file> --name n` (or `--keep-name`). `plan set <file> <place>` also works |
 | `apply [plan] [--dry-run] [--yes] [--on-conflict rename]` | Runs moves, renames and deletions. Asks for confirmation |
 | `history`, `undo <ids> \| --plan \| --last`, `forget <ids>` | Move history and undo |
 | `recover [--abandon <ids>]` | Finishes or rolls back interrupted moves (also runs automatically). `--abandon` drops one it can't resolve, after you've checked its files |
 | `find <words...>` | Searches files by summary, keywords and name |
-| `folders list \| add \| edit \| rm` | Smart folders |
+| `places list \| add \| edit \| rm` | Places |
 | `rules`, `rules add \| rm`, `rules naming [style]` | General rules and naming style for the agent |
 | `config get \| set \| unset` | `source`, `excerptChars`, `previewChars`, `maxFiles`, `olderThan`, `skipOrganized`, `rename` (auto/always/off), `naming`, `extensionCase` (keep/lower), `historyMaxMoves`, `summariesMax` (0 = unlimited), `allowDelete`, `trashDir` |
 | `compact` | Applies `historyMaxMoves` / `summariesMax` now and drops superseded summaries (also runs automatically after writes) |
@@ -123,7 +123,7 @@ for files it can't classify from that. On 336 files, the compact output is about
 
 - `--older-than 14d`, or `config set olderThan 14d`, leaves files you're still using out of the plan.
   "Recent" means created *or* modified within the window.
-- `duplicates` lists identical files. That includes copies already filed in a smart folder, as long as
+- `duplicates` lists identical files. That includes copies already filed in a place, as long as
   tidybot has seen that copy before (scanned, summarized, or moved after a scan).
 - `similar` lists probable copies that aren't identical: the same extracted text, the same name apart
   from ` (1)`, ` copy` or `-2`, or the same type and exact size. The agent checks them; it proposes
@@ -161,10 +161,10 @@ Cached summaries are checked against the current sensitivity rules on every read
 
 ## Per-project settings (advanced)
 
-`tidybot init` in a directory creates `<dir>/.tidybot/` with its own `folders.yaml` and `config.yaml`.
+`tidybot init` in a directory creates `<dir>/.tidybot/` with its own `places.yaml` and `config.yaml`.
 Commands run anywhere under that directory pick it up, the same way git finds its folder.
 
-- The project's smart folders **replace** the global set.
+- The project's places **replace** the global set.
 - Project config **overrides** global values key by key, and project `rules` are **added** to the global ones.
 - Inside a project, `source` defaults to the project root.
 - Plans, history and summaries stay global.
@@ -175,7 +175,7 @@ Commands run anywhere under that directory pick it up, the same way git finds it
 ```
 ~/.tidybot/                 # global home (override with TIDYBOT_HOME)
   config.yaml               # settings, naming style, rules
-  folders.yaml              # smart folders — hand-editable
+  places.yaml               # places — hand-editable
   plans/<id>.json           # one file per plan
   operations/<id>.json      # recovery journals for moves/undos in progress
   move-locks/              # temporary process locks while moving or recovering
@@ -183,7 +183,7 @@ Commands run anywhere under that directory pick it up, the same way git finds it
   summaries.jsonl           # append-only: content hash → summary + keywords
   index.json                # path → hash cache (skips rehashing; lets `find` locate files)
   allowlist.json            # per-file sensitive-detection exceptions, keyed by content hash
-<project>/.tidybot/         # optional per-project config.yaml + folders.yaml
+<project>/.tidybot/         # optional per-project config.yaml + places.yaml
 ```
 
 Moves and undo use exclusive destination creation to prevent overwrites, including races with
@@ -210,8 +210,8 @@ prototype with a Next.js web UI. It sent file names, types and content to GPT or
 model selected the destination folder for each file.
 
 tidybot is a full rewrite of that project as a TypeScript CLI that an AI agent operates. It keeps
-the smart-folder idea. The code and the history of `main` are new. The old code is on the
-[`legacy`](https://github.com/mondaychen/tidybot/tree/legacy) branch.
+the idea of destination folders with rules, which tidybot calls places. The code and the history of
+`main` are new. The old code is on the [`legacy`](https://github.com/mondaychen/tidybot/tree/legacy) branch.
 
 ## License
 

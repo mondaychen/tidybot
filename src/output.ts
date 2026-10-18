@@ -53,14 +53,14 @@ export function renderPlan(plan: Plan): string {
   const lines = [`Plan ${plan.id} [${planState(plan)}]  source: ${contractHome(plan.source)}  (${summary})`, ""];
   for (const i of plan.items) {
     const rel = path.relative(plan.source, i.file);
-    const inPlace = i.destination === path.dirname(i.file) && i.folder === null;
+    const inPlace = i.destination === path.dirname(i.file) && i.place === null;
     const dest = i.delete
       ? "(delete: to the trash)"
       : !i.destination
-      ? (i.folder ?? "—")
+      ? (i.place ?? "—")
       : inPlace
         ? "(rename in place)"
-        : `${i.folder ?? "(custom)"}  ${contractHome(i.destination)}`;
+        : `${i.place ?? "(custom)"}  ${contractHome(i.destination)}`;
     const rename = i.newName ? `  as "${i.newName}"` : "";
     const extra = [
       i.confidence !== undefined ? `${Math.round(i.confidence * 100)}%` : "",

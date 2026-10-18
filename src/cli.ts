@@ -22,7 +22,7 @@ import {
   setRuleAllowed,
   unsetConfigValue,
 } from "./store/config.js";
-import { addFolder, findFolder, foldersFile, importFolders, loadFolders, removeFolder, saveFolders, updateFolder } from "./store/folders.js";
+import { addPlace, findPlace, placesFile, importPlaces, loadPlaces, removePlace, savePlaces, updatePlace } from "./store/places.js";
 import { loadMoves } from "./store/history.js";
 import { abandonOperation, recoverMoves, recoverPendingMoves, withMoveLock } from "./store/operations.js";
 import { parseStructured, writeYaml } from "./store/io.js";
@@ -70,7 +70,7 @@ const writeScope = (): Scope => activeScope();
 const scopeLabel = () => (projectDir() ? `project ${contractHome(path.dirname(projectDir() as string))}` : "global");
 
 const program = new Command("tidybot")
-  .description("Organize files into smart folders. An AI agent proposes, you review, tidybot moves (and undoes).\nAI agents: start with `tidybot guide`.")
+  .description("Organize files into places (folders with rules). An AI agent proposes, you review, tidybot moves (and undoes).\nAI agents: start with `tidybot guide`.")
   .version("0.2.0")
   .option("--json", "machine-readable JSON output (or set TIDYBOT_JSON=1)")
   .option("-g, --global", "ignore any per-project settings (.tidybot/) and use global ones")
@@ -115,14 +115,14 @@ function addScanOptions(cmd: Command): Command {
     .option("--offset <n>", "skip this many files (use `nextOffset` from the previous page)", int)
     .option("--older-than <age>", "leave recent files alone: only files older than e.g. 14d, 2w, 3m (default: config olderThan)")
     .option("--any-age", "ignore the configured olderThan filter")
-    .option("--include-organized", "also scan files already inside smart folders (skipped by default)")
+    .option("--include-organized", "also scan files already inside places (skipped by default)")
     .option("--include-hidden", "also scan hidden files and folders (dotfiles, and files the OS marks hidden or system)")
     .option("--include <glob>", INCLUDE_HELP, collect, []);
 }
 
 async function runScan(dirArg: string | undefined, o: Record<string, unknown>, excerptChars?: number) {
   const config = loadConfig();
-  const folders = loadFolders();
+  const places = loadPlaces();
   const dir = resolvePath(dirArg ?? config.source);
   const skipOrganized = !o.includeOrganized && config.skipOrganized;
   const olderThan = o.anyAge ? "" : ((o.olderThan as string | undefined) ?? config.olderThan);
@@ -135,19 +135,19 @@ async function runScan(dirArg: string | undefined, o: Record<string, unknown>, e
     excerptChars: excerptChars ?? config.excerptChars,
     allowRules: config.allowRules,
     // Deleted files are out of the way, never something to organize.
-    skipFolders: [...(skipOrganized ? folders : []), ...(config.trashDir ? [{ name: "trash folder", path: config.trashDir, rule: "" }] : [])],
+    skipPlaces: [...(skipOrganized ? places : []), ...(config.trashDir ? [{ name: "trash folder", path: config.trashDir, rule: "" }] : [])],
     includeHidden: !!o.includeHidden,
     include: o.include as string[],
     noHash: o.content === false,
   });
-  return { config, folders, dir, olderThan, ...result };
+  return { config, places, dir, olderThan, ...result };
 }
 
 addScanOptions(
   program
     .command("scan")
     .description(
-      "compact list of files (type, size, date, summary or short preview, flags) plus smart folders and rules — step 1 of classifying; use `inspect` for full excerpts",
+      "compact list of files (type, size, date, summary or short preview, flags) plus places and rules — step 1 of classifying; use `inspect` for full excerpts",
     ),
 )
   .option("--full", "full entries with long excerpts and absolute paths instead of the compact view")
@@ -170,7 +170,7 @@ addScanOptions(
       ...(r.nextOffset !== undefined ? { nextOffset: r.nextOffset } : {}),
       olderThan: r.olderThan || null,
       skippedRecent: r.skippedRecent,
-      skippedFolders: r.skippedFolders,
+      skippedPlaces: r.skippedPlaces,
       skippedHidden: r.skippedHidden,
       ...(r.skippedDirs.length ? { skippedDirs: r.skippedDirs } : {}),
       ...(r.unreadable.length ? { unreadable: r.unreadable } : {}),
@@ -184,13 +184,13 @@ addScanOptions(
       extensionCase: r.config.extensionCase,
       rules: r.config.rules,
       trash: trashStatus(r.config),
-      folders: r.folders,
+      places: r.places,
       files: o.full ? r.files : r.files.map(compact),
     };
     emit(data, () => {
       const lines = [`${r.files.length} file(s) in ${contractHome(r.dir)}${r.truncated ? ` (more: --offset ${r.nextOffset})` : ""}`];
       if (r.olderThan) lines.push(`older than ${r.olderThan}: ${r.skippedRecent} recent file(s) left alone`);
-      if (r.skippedFolders.length) lines.push(`skipped smart folders: ${r.skippedFolders.join(", ")}`);
+      if (r.skippedPlaces.length) lines.push(`skipped places: ${r.skippedPlaces.join(", ")}`);
       if (r.skippedHidden) lines.push(`${r.skippedHidden} hidden file(s) or folder(s) left out (--include-hidden, or --include <glob>)`);
       if (r.skippedDirs.length) lines.push(`${r.skippedDirs.length} subfolder(s) not scanned (add -r): ${r.skippedDirs.join(", ")}`);
       if (r.unreadable.length) lines.push(`couldn't read: ${r.unreadable.join(", ")}`);
@@ -213,8 +213,8 @@ addScanOptions(
       for (const g of r.similar) lines.push(`similar (${g.why}, not identical): ${g.files.join("  ~  ")}`);
       for (const a of r.extractedArchives) lines.push(`extracted archive: ${a.archive} was extracted into ${a.dir}/; one of them may be redundant`);
       if (needs.required || needs.recommended) lines.push("", `Summaries needed: ${needs.required} required, ${needs.recommended} recommended. See \`tidybot guide summarize\`.`);
-      if (r.folders.length === 0) lines.push("", "No smart folders yet. See `tidybot guide onboard`.");
-      else lines.push("", "Smart folders:", ...r.folders.map((f) => `  ${f.name} → ${f.path}${f.rule ? `  (${f.rule})` : ""}`));
+      if (r.places.length === 0) lines.push("", "No places yet. See `tidybot guide onboard`.");
+      else lines.push("", "Places:", ...r.places.map((f) => `  ${f.name} → ${f.path}${f.rule ? `  (${f.rule})` : ""}`));
       if (r.config.rules.length) lines.push("", "Rules:", ...r.config.rules.map((x) => `  - ${x}`));
       lines.push("", `Rename: ${r.config.rename}${r.config.naming ? `. Naming: ${r.config.naming}` : ""}${r.config.extensionCase === "lower" ? ". Extensions: lowercase" : ""}`);
       lines.push(`Deleting: ${describeTrash(trashStatus(r.config))}`);
@@ -257,7 +257,7 @@ program
 
 program
   .command("survey")
-  .description("summarize existing directory structure so an agent can propose smart folders (onboarding)")
+  .description("summarize existing directory structure so an agent can propose places (onboarding)")
   .argument("<dirs...>", "directories to survey, e.g. ~/Documents")
   .option("-d, --depth <n>", "how many levels deep to descend", int, 3)
   .option("--samples <n>", "sample file names per directory", int, 5)
@@ -265,18 +265,18 @@ program
   .option("--include-hidden", "also survey hidden files and folders")
   .option("--include <glob>", INCLUDE_HELP, collect, [])
   .action((dirs: string[], o) => {
-    const folders = loadFolders();
+    const places = loadPlaces();
     const roots = dirs.map((d) =>
-      survey(resolvePath(d), { depth: o.depth, samples: o.samples, maxDirs: o.maxDirs, folders, includeHidden: o.includeHidden, include: o.include }),
+      survey(resolvePath(d), { depth: o.depth, samples: o.samples, maxDirs: o.maxDirs, places, includeHidden: o.includeHidden, include: o.include }),
     );
-    emit({ roots, folders }, () =>
+    emit({ roots, places }, () =>
       roots
         .flatMap((r) => [
           `${r.root}${r.truncated ? `  (truncated: ${r.truncatedBy.map((t) => (t === "depth" ? `deeper folders not shown, raise --depth (now ${o.depth})` : `more folders than --max-dirs ${o.maxDirs}`)).join("; ")})` : ""}`,
           ...r.dirs.map((d) => {
             const exts = d.topExtensions.map((e) => `${e.ext}×${e.count}`).join(" ");
-            const smart = d.smartFolder ? `  [smart folder: ${d.smartFolder}]` : "";
-            return `${"  ".repeat(d.depth + 1)}${path.basename(d.path) || d.path}/  ${d.totalFiles} files  ${exts}${smart}`;
+            const place = d.place ? `  [place: ${d.place}]` : "";
+            return `${"  ".repeat(d.depth + 1)}${path.basename(d.path) || d.path}/  ${d.totalFiles} files  ${exts}${place}`;
           }),
         ])
         .join("\n"),
@@ -507,10 +507,10 @@ plan
 
 plan
   .command("set")
-  .description("change where files go (smart folder or --path), a file's new name, or mark files for deletion")
-  .argument("<files...>", "file paths (relative to the plan source). `plan set <file> <folder>` also works")
-  .option("-f, --folder <name>", "smart folder name")
-  .option("--path <dir>", "custom destination directory instead of a smart folder")
+  .description("change where files go (a place or --path), a file's new name, or mark files for deletion")
+  .argument("<files...>", "file paths (relative to the plan source). `plan set <file> <place>` also works")
+  .option("--place <name>", "place name")
+  .option("--path <dir>", "custom destination directory instead of a place")
   .option("--name <newName>", "rename the file (one file only; extension is kept)")
   .option("--keep-name", "cancel a proposed rename")
   .option("--delete", "delete the files instead (they go to the trash)")
@@ -518,14 +518,14 @@ plan
   .action((args: string[], o) => {
     const p = loadPlan(o.plan);
     let files = args;
-    let folder: string | undefined = o.folder;
-    // The older form: a smart folder name after the file(s), when it isn't also a file in the plan.
+    let place: string | undefined = o.place;
+    // The older form: a place name after the file(s), when it isn't also a file in the plan.
     const last = args.at(-1) as string;
-    if (!folder && !o.path && !o.delete && args.length > 1 && findFolder(loadFolders(), last) && !inPlan(p, last)) {
-      folder = last;
+    if (!place && !o.path && !o.delete && args.length > 1 && findPlace(loadPlaces(), last) && !inPlan(p, last)) {
+      place = last;
       files = args.slice(0, -1);
     }
-    const items = retargetAll(p, files, { folder, path: o.path, name: o.keepName ? null : o.name, delete: o.delete });
+    const items = retargetAll(p, files, { place, path: o.path, name: o.keepName ? null : o.name, delete: o.delete });
     const where = (i: PlanItem) => (i.delete ? "trash" : contractHome(path.join(i.destination ?? "", i.newName ?? path.basename(i.file))));
     emit({ ok: true, planId: p.id, items }, () =>
       items.flatMap((i, n) => [`${files[n]} → ${where(i)}`, ...(i.warnings ?? []).map((w) => `  ⚠ ${w}`)]).join("\n"),
@@ -671,67 +671,67 @@ program
     emit({ ok: true, forgotten: entries }, () => `Forgot ${entries.length} entr${entries.length === 1 ? "y" : "ies"}.`);
   });
 
-// ---------------------------------------------------------------- smart folders
+// ---------------------------------------------------------------- places
 
-const folders = program.command("folders").description("manage smart folders (name + path + natural-language rule)");
+const places = program.command("places").description("manage places: destination folders, each with a name, a path and a natural-language rule");
 
-folders
+places
   .command("list", { isDefault: true })
-  .description("list smart folders")
+  .description("list places")
   .action(() => {
-    const list = loadFolders();
-    emit({ scope: scopeLabel(), file: foldersFile(), folders: list }, () =>
+    const list = loadPlaces();
+    emit({ scope: scopeLabel(), file: placesFile(), places: list }, () =>
       list.length
         ? [`(${scopeLabel()})`, ...list.map((f) => `${f.name}  ${f.path}${f.rule ? `\n    ${f.rule}` : ""}`)].join("\n")
-        : "No smart folders. Add one with `tidybot folders add <name> <path> --rule '...'`.",
+        : "No places. Add one with `tidybot places add <name> <path> --rule '...'`.",
     );
   });
 
-folders
+places
   .command("add")
-  .description("add a smart folder")
+  .description("add a place")
   .argument("<name>")
   .argument("<path>")
-  .option("-r, --rule <text>", "what belongs in this folder", "")
+  .option("-r, --rule <text>", "what belongs in this place", "")
   .action((name: string, p: string, o) => {
-    const f = addFolder({ name, path: p, rule: o.rule });
-    emit({ ok: true, scope: scopeLabel(), folder: f }, () => `Added ${f.name} → ${f.path}  (${scopeLabel()})`);
+    const f = addPlace({ name, path: p, rule: o.rule });
+    emit({ ok: true, scope: scopeLabel(), place: f }, () => `Added ${f.name} → ${f.path}  (${scopeLabel()})`);
   });
 
-folders
+places
   .command("edit")
-  .description("change a smart folder's name, path or rule")
+  .description("change a place's name, path or rule")
   .argument("<name>")
   .option("--name <new>", "new name")
   .option("--path <dir>", "new path")
   .option("-r, --rule <text>", "new rule")
   .action((name: string, o) => {
     const patch = Object.fromEntries(Object.entries({ name: o.name, path: o.path, rule: o.rule }).filter(([, v]) => v !== undefined));
-    const f = updateFolder(name, patch);
-    emit({ ok: true, folder: f }, () => `Updated ${f.name} → ${f.path}`);
+    const f = updatePlace(name, patch);
+    emit({ ok: true, place: f }, () => `Updated ${f.name} → ${f.path}`);
   });
 
-folders
+places
   .command("rm")
-  .description("remove a smart folder (does not touch files on disk)")
+  .description("remove a place (does not touch files on disk)")
   .argument("<name>")
   .action((name: string) => {
-    const f = removeFolder(name);
+    const f = removePlace(name);
     emit({ ok: true, removed: f }, () => `Removed ${f.name}`);
   });
 
-folders
+places
   .command("import")
-  .description("add/update many folders at once from JSON or YAML (e.g. an agent's onboarding proposal)")
+  .description("add/update many places at once from JSON or YAML (e.g. an agent's onboarding proposal)")
   .argument("[file]", "JSON/YAML file, or - for stdin")
-  .option("--data <json>", "folders inline, or - for stdin")
-  .option("--replace", "replace all existing folders instead of merging")
+  .option("--data <json>", "places inline, or - for stdin")
+  .option("--replace", "replace all existing places instead of merging")
   .option("-n, --dry-run", "validate and show the result without saving")
   .action((file: string | undefined, o) => {
-    const r = importFolders(readInput(o, file), { replace: o.replace, dryRun: o.dryRun });
+    const r = importPlaces(readInput(o, file), { replace: o.replace, dryRun: o.dryRun });
     emit({ ok: true, dryRun: !!o.dryRun, scope: scopeLabel(), ...r }, () =>
       [
-        `${o.dryRun ? "Would add" : "Added"} ${r.added.length}, ${o.dryRun ? "would update" : "updated"} ${r.updated.length}. Total: ${r.folders.length}.  (${scopeLabel()})`,
+        `${o.dryRun ? "Would add" : "Added"} ${r.added.length}, ${o.dryRun ? "would update" : "updated"} ${r.updated.length}. Total: ${r.places.length}.  (${scopeLabel()})`,
         ...r.added.map((f) => `  + ${f.name}  ${f.path}`),
         ...r.updated.map((f) => `  ~ ${f.name}  ${f.path}`),
       ].join("\n"),
@@ -740,7 +740,7 @@ folders
 
 // ---------------------------------------------------------------- rules (naming style + general instructions)
 
-const rules = program.command("rules").description("naming style and general instructions for the agent (beyond per-folder rules)");
+const rules = program.command("rules").description("naming style and general instructions for the agent (beyond per-place rules)");
 
 rules
   .command("list", { isDefault: true })
@@ -825,19 +825,19 @@ config
 
 program
   .command("init")
-  .description("create per-project settings (.tidybot/) — smart folders and config that apply under this directory")
+  .description("create per-project settings (.tidybot/) — places and config that apply under this directory")
   .argument("[dir]", "project root", ".")
-  .option("--copy-global", "start from a copy of the global smart folders")
+  .option("--copy-global", "start from a copy of the global places")
   .action((dir: string, o) => {
     const root = resolvePath(dir);
     const target = path.join(root, PROJECT_DIRNAME);
     if (target === tidybotHome()) throw new TidyError("That is the global tidybot home.");
     if (fs.existsSync(target)) throw new TidyError(`${contractHome(target)} already exists.`);
-    const initial = o.copyGlobal ? loadFolders(path.join(tidybotHome(), "folders.yaml")) : [];
-    saveFolders(initial, path.join(target, "folders.yaml"));
+    const initial = o.copyGlobal ? loadPlaces(path.join(tidybotHome(), "places.yaml")) : [];
+    savePlaces(initial, path.join(target, "places.yaml"));
     writeYaml(path.join(target, "config.yaml"), {}, "# Project overrides for tidybot. Unset keys fall back to ~/.tidybot/config.yaml.\n# `rules` here are added to the global rules.");
-    emit({ ok: true, project: target, folders: initial.length }, () =>
-      `Created ${contractHome(target)} with ${initial.length} smart folder(s).\nCommands run under ${contractHome(root)} now use these settings (override with --global).`,
+    emit({ ok: true, project: target, places: initial.length }, () =>
+      `Created ${contractHome(target)} with ${initial.length} place(s).\nCommands run under ${contractHome(root)} now use these settings (override with --global).`,
     );
   });
 
@@ -853,7 +853,7 @@ program
 
 program
   .command("status")
-  .description("active scope, where state lives, smart folder count, open plans")
+  .description("active scope, where state lives, place count, open plans")
   .action(() => {
     const open = listPlans().filter((p) => planState(p) === "open");
     const c = loadConfig();
@@ -863,7 +863,7 @@ program
       home: tidybotHome(),
       project: projectDir() ?? null,
       config: c,
-      folders: loadFolders().length,
+      places: loadPlaces().length,
       openPlans: open.map((p) => p.id),
       undoableMoves: undoable.length,
       lastUndoablePlan: undoable.findLast((m) => m.planId)?.planId ?? null,
@@ -874,7 +874,7 @@ program
         `home:         ${contractHome(data.home)}`,
         `project:      ${data.project ? contractHome(data.project) : "none (global settings)"}`,
         `source:       ${c.source}`,
-        `folders:      ${data.folders}${data.folders === 0 ? "  (run `tidybot guide onboard`)" : ""}`,
+        `places:       ${data.places}${data.places === 0 ? "  (run `tidybot guide onboard`)" : ""}`,
         `rename:       ${c.rename}${c.naming ? `  naming: ${c.naming}` : ""}`,
         `rules:        ${c.rules.length}`,
         `deleting:     ${describeTrash(data.trash)}`,

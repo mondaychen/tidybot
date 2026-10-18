@@ -10,7 +10,7 @@ import { preview } from "../src/preview.js";
 import { findSimilar, listFiles, scan } from "../src/scan.js";
 import { sensitiveByContent, sensitiveByName } from "../src/sensitive.js";
 import { setConfigValue } from "../src/store/config.js";
-import { addFolder } from "../src/store/folders.js";
+import { addPlace } from "../src/store/places.js";
 import { loadPlan } from "../src/store/plans.js";
 import { survey } from "../src/survey.js";
 import { pdf, sandbox, write } from "./helpers.js";
@@ -29,8 +29,8 @@ beforeEach(() => {
   dl = path.join(root, "dl");
   docs = path.join(root, "docs");
   fs.mkdirSync(dl, { recursive: true });
-  addFolder({ name: "Docs", path: docs });
-  addFolder({ name: "Photos", path: path.join(root, "photos") });
+  addPlace({ name: "Docs", path: docs });
+  addPlace({ name: "Photos", path: path.join(root, "photos") });
 });
 
 afterEach(() => {
@@ -82,7 +82,7 @@ describe("summary todo", () => {
 
 describe("status", () => {
   it("counts the moves undo can reverse, and names the latest plan", async () => {
-    const plan = await propose([{ file: write(path.join(dl, "a.txt"), "a"), folder: "Docs" }], { source: dl });
+    const plan = await propose([{ file: write(path.join(dl, "a.txt"), "a"), place: "Docs" }], { source: dl });
     await applyPlan(plan);
     const r = cli("--json", "status").json();
     expect(r).toMatchObject({ undoableMoves: 1, lastUndoablePlan: plan.id });
@@ -112,11 +112,11 @@ describe("scan without -r", () => {
     expect(deep.extractedArchives).toHaveLength(2);
   });
 
-  it("reports a smart folder inside the scanned directory as a skipped smart folder", () => {
-    addFolder({ name: "Inbox", path: path.join(dl, "inbox") });
+  it("reports a place inside the scanned directory as a skipped place", () => {
+    addPlace({ name: "Inbox", path: path.join(dl, "inbox") });
     write(path.join(dl, "inbox/a.txt"), "a");
-    const r = listFiles(dl, { maxFiles: 10, skipFolders: [{ name: "Inbox", path: path.join(dl, "inbox"), rule: "" }] });
-    expect(r).toMatchObject({ skippedDirs: [], skippedFolders: ["Inbox"] });
+    const r = listFiles(dl, { maxFiles: 10, skipPlaces: [{ name: "Inbox", path: path.join(dl, "inbox"), rule: "" }] });
+    expect(r).toMatchObject({ skippedDirs: [], skippedPlaces: ["Inbox"] });
   });
 });
 
@@ -170,7 +170,7 @@ describe("conflict warnings", () => {
     write(path.join(dl, "a/twin.txt"), "t");
     write(path.join(dl, "b/twin.txt"), "t");
     const plan = await propose(
-      ["same.txt", "other.txt", "a/twin.txt", "b/twin.txt"].map((file) => ({ file, folder: "Docs" })),
+      ["same.txt", "other.txt", "a/twin.txt", "b/twin.txt"].map((file) => ({ file, place: "Docs" })),
       { source: dl },
     );
     expect(plan.items.map((i) => i.warnings?.[0])).toEqual([
@@ -185,29 +185,29 @@ describe("conflict warnings", () => {
 describe("plan set with several files", () => {
   async function plan3() {
     for (const n of ["a.txt", "b.txt", "c.txt"]) write(path.join(dl, n), n);
-    return propose(["a.txt", "b.txt", "c.txt"].map((file) => ({ file, folder: null, rename: `${file}-new` })), { source: dl });
+    return propose(["a.txt", "b.txt", "c.txt"].map((file) => ({ file, place: null, rename: `${file}-new` })), { source: dl });
   }
 
-  it("moves every file to the folder", async () => {
+  it("moves every file to the place", async () => {
     const plan = await plan3();
-    const items = retargetAll(plan, ["a.txt", "b.txt"], { folder: "Photos" });
-    expect(items.map((i) => i.folder)).toEqual(["Photos", "Photos"]);
-    expect(loadPlan(plan.id).items.map((i) => i.folder)).toEqual(["Photos", "Photos", null]);
+    const items = retargetAll(plan, ["a.txt", "b.txt"], { place: "Photos" });
+    expect(items.map((i) => i.place)).toEqual(["Photos", "Photos"]);
+    expect(loadPlan(plan.id).items.map((i) => i.place)).toEqual(["Photos", "Photos", null]);
   });
 
   it("changes nothing when one file fails", async () => {
     const plan = await plan3();
-    expect(() => retargetAll(plan, ["a.txt", "missing.txt"], { folder: "Photos" })).toThrow(/not in plan/);
-    expect(loadPlan(plan.id).items.map((i) => i.folder)).toEqual([null, null, null]);
-    expect(plan.items.map((i) => i.folder)).toEqual([null, null, null]);
+    expect(() => retargetAll(plan, ["a.txt", "missing.txt"], { place: "Photos" })).toThrow(/not in plan/);
+    expect(loadPlan(plan.id).items.map((i) => i.place)).toEqual([null, null, null]);
+    expect(plan.items.map((i) => i.place)).toEqual([null, null, null]);
     expect(() => retargetAll(plan, ["a.txt", "b.txt"], { name: "x" })).toThrow(/one file only/);
   });
 
-  it("takes --folder, or a folder name after the files", async () => {
+  it("takes --place, or a place name after the files", async () => {
     const plan = await plan3();
-    expect(cli("--json", "plan", "set", "a.txt", "b.txt", "--folder", "Photos").json().items).toHaveLength(2);
-    expect(cli("--json", "plan", "set", "c.txt", "Docs").json().items.map((i: { folder: string }) => i.folder)).toEqual(["Docs"]);
-    expect(loadPlan(plan.id).items.map((i) => i.folder)).toEqual(["Photos", "Photos", "Docs"]);
+    expect(cli("--json", "plan", "set", "a.txt", "b.txt", "--place", "Photos").json().items).toHaveLength(2);
+    expect(cli("--json", "plan", "set", "c.txt", "Docs").json().items.map((i: { place: string }) => i.place)).toEqual(["Docs"]);
+    expect(loadPlan(plan.id).items.map((i) => i.place)).toEqual(["Photos", "Photos", "Docs"]);
   });
 
   it("reads proposals from stdin with --data -", async () => {
@@ -216,10 +216,10 @@ describe("plan set with several files", () => {
       cwd: repo,
       env: process.env,
       encoding: "utf8",
-      input: JSON.stringify([{ file: "d.txt", folder: "Docs" }]),
+      input: JSON.stringify([{ file: "d.txt", place: "Docs" }]),
       timeout: 20_000,
     });
-    expect(JSON.parse(r.stdout).plan.items[0]).toMatchObject({ folder: "Docs", status: "pending" });
+    expect(JSON.parse(r.stdout).plan.items[0]).toMatchObject({ place: "Docs", status: "pending" });
   });
 });
 
@@ -230,7 +230,7 @@ describe("extension case", () => {
     expect(sanitizeName("shirt.HEIC", "/x/IMG_1.HEIC", { extensionCase: "lower" })).toBe("shirt.heic");
     setConfigValue("extensionCase", "lower");
     write(path.join(dl, "IMG_2.JPG"), "x");
-    const plan = await propose([{ file: "IMG_2.JPG", folder: "Photos", rename: "beach", summarySkipped: "test" }], { source: dl });
+    const plan = await propose([{ file: "IMG_2.JPG", place: "Photos", rename: "beach", summarySkipped: "test" }], { source: dl });
     expect(plan.items[0]?.newName).toBe("beach.jpg");
     expect(plan.context?.extensionCase).toBe("lower");
     expect(retarget(plan, "IMG_2.JPG", { name: "sea" }).newName).toBe("sea.jpg");

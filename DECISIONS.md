@@ -8,9 +8,9 @@ redesigned the rest for a CLI that an agent drives. Open questions are collected
 
 | Original concept | tidybot |
 |---|---|
-| A list of destination folders in the config | Smart folders: `folders.yaml`, `tidybot folders …`. Each folder has a name, a path and a natural-language rule. Names are unique case-insensitively, paths are unique after `~` expansion. A folder with an empty rule works like an old destination |
+| A list of destination folders in the config | Places: `places.yaml`, `tidybot places …`. Each place has a name, a path and a natural-language rule. Names are unique case-insensitively, paths are unique after `~` expansion. A place with an empty rule works like an old destination |
 | Analyze files by name, type and content excerpt | `scan` extracts excerpts from txt/md/csv/json/etc., PDF, DOCX, PPTX and XLSX. Unknown extensions are sniffed for text |
-| The model selects exactly one destination, never a made-up path | The agent sends folder **names**. Unknown names become `invalid` items and are never moved |
+| The model selects exactly one destination, never a made-up path | The agent sends place **names**. Unknown names become `invalid` items and are never moved |
 | User reviews suggestions before any move | A plan is a reviewable artifact: `plan show / set / skip`, then `apply` |
 | Batch analyze and batch move | One `scan` for many files, one `propose` for many items, `apply` moves all pending items |
 | Create destination directories that don't exist | Yes (`mkdir -p`) |
@@ -27,7 +27,7 @@ redesigned the rest for a CLI that an agent drives. Open questions are collected
 
 1. **No LLM inside tidybot. AI features become agent-callable commands.** *(confirmed)*
    - Classification: `scan` (context in) and `propose` (decisions out).
-   - Onboarding: `survey` and `folders import`.
+   - Onboarding: `survey` and `places import`.
    - Summaries: `summary todo` and `summary save`.
    - `guide` holds the judging instructions, including the few-shot examples from the original `prompt.py`.
    A built-in `classify` that calls a model directly is out for now.
@@ -55,7 +55,7 @@ redesigned the rest for a CLI that an agent drives. Open questions are collected
      entry, and records the destination's actual timestamp.
 
 5. **Storage formats:**
-   - YAML for files people edit: `config.yaml`, `folders.yaml`.
+   - YAML for files people edit: `config.yaml`, `places.yaml`.
    - JSON for machine-rewritten files: `plans/<id>.json`, `index.json`.
    - Append-only JSONL for logs: `history.jsonl`, `summaries.jsonl`. The last record wins.
    - Retention is capped by record count, not bytes or lines: `historyMaxMoves` keeps the newest N moves
@@ -80,12 +80,12 @@ redesigned the rest for a CLI that an agent drives. Open questions are collected
 
 6. **Global state with optional per-project settings.** `tidybot init` creates `<dir>/.tidybot/`, which is
    found by walking up from cwd like git. The rules for combining them:
-   - Project `folders.yaml` **replaces** the global folders. Merging two folder sets would make "which
-     folders apply here" hard to reason about. Use `init --copy-global` to start from the global set.
+   - Project `places.yaml` **replaces** the global places. Merging two sets of places would make "which
+     places apply here" hard to reason about. Use `init --copy-global` to start from the global set.
    - Project `config.yaml` overrides global values key by key. `rules` are **added** to the global list,
      since global rules like "never move drafts" should still apply.
    - Inside a project, `source` defaults to the project root.
-   - Writes (`folders add`, `config set`, `rules add`) go to the project when one is active. `-g` forces global.
+   - Writes (`places add`, `config set`, `rules add`) go to the project when one is active. `-g` forces global.
    - Plans, history, summaries and the index stay **global**. A move is a move wherever you ran it from,
      and a content hash means the same thing everywhere.
    - `~/.tidybot` is never mistaken for a project, even when `TIDYBOT_HOME` points somewhere else.
@@ -135,7 +135,7 @@ redesigned the rest for a CLI that an agent drives. Open questions are collected
       - It **re-adds the original extension** if the agent dropped or changed it (compared case-insensitively),
         so a rename can never change a file's type.
       - A name that comes out the same as the current one, or empty, means no rename.
-    - `folder: null` together with `rename` means rename in place.
+    - `place: null` together with `rename` means rename in place.
     - `rename` mode in config:
       - `auto` (default): rename only unhelpful names and conflicts.
       - `always`: rename every file using the naming style.
@@ -146,14 +146,14 @@ redesigned the rest for a CLI that an agent drives. Open questions are collected
       are **warnings** rather than errors, so you can still accept them and use `--on-conflict rename`.
       I made this call because blocking seemed too strict.
 
-13. **Rules beyond smart folders.** `config.yaml` now holds `naming` (a free-text style guide) and
+13. **Rules beyond places.** `config.yaml` now holds `naming` (a free-text style guide) and
     `rules` (a list of free-text instructions). Both are returned by every `scan`, so the agent always
     sees them. Onboarding tells the agent to ask for both. Managed with `tidybot rules …`.
 
-14. **Recursive scans skip organized files.** With `-r`, tidybot doesn't descend into any smart folder
+14. **Recursive scans skip organized files.** With `-r`, tidybot doesn't descend into any place
     below the scan root (default `skipOrganized: true`; `--include-organized` turns it off). If you scan a
-    smart folder itself, it isn't skipped, because you asked for it explicitly. `survey` marks directories
-    that are smart folders.
+    place itself, it isn't skipped, because you asked for it explicitly. `survey` marks directories
+    that are places.
 
 15. **File summaries, driven by the agent and cached by content hash.**
     - **Key**: `sha256` of the whole file. Files over 64 MiB get a `quick:` hash of size + first/last 4 MiB,
@@ -228,7 +228,7 @@ redesigned the rest for a CLI that an agent drives. Open questions are collected
 
 19. **Smaller fixes.**
     - `plan set x.txt` errors when the name matches more than one file, instead of picking one.
-    - Each plan records `context` (rename mode, naming style, rules and folders in effect at the latest
+    - Each plan records `context` (rename mode, naming style, rules and places in effect at the latest
       `propose`). This answers open question 4 from the previous round.
 
 20. **Two-step scan** *(requested)*. `scan` now returns a compact view by default: `rel`, type, size, date,
@@ -245,9 +245,9 @@ redesigned the rest for a CLI that an agent drives. Open questions are collected
 
 21. **Duplicates** *(requested)*. `scan` groups scanned files by content hash, ignoring empty files. It
     also lists identical files the index knows about elsewhere, for example a copy already filed in a
-    smart folder. The limit is that "elsewhere" only covers files tidybot has hashed. A smart folder that
-    has never been scanned won't show up; running `scan -r --include-organized` once over the smart
-    folders fills that in. The agent can propose deleting the extra copies, keeping the one already
+    place. The limit is that "elsewhere" only covers files tidybot has hashed. A place that
+    has never been scanned won't show up; running `scan -r --include-organized` once over the
+    places fills that in. The agent can propose deleting the extra copies, keeping the one already
     filed (#26).
 
 22. **`--older-than` / `olderThan`** *(requested)*. A file counts as recent if it was created **or**
@@ -319,19 +319,19 @@ redesigned the rest for a CLI that an agent drives. Open questions are collected
       If history can't be written after the file left, the journal stays and the next command records it.
     - The guide limits deletions to exact duplicates (never the last copy) and the user's own rules, and
       keeps sensitive files out unless the user asks. `plan set <file> --delete` lets the user mark a
-      file, and `plan set <file> <folder>` turns it back into a move.
+      file, and `plan set <file> <place>` turns it back into a move.
     - `trash` is async, which made `applyPlan` async. The move lock now holds its claim until an async
       callback settles.
 
 27. **Skipping files on purpose** *(requested)*. A proposal item can be `{file, skip: true, reason}`. The
-    plan records it as `skipped` with the note "left in place by agent", apart from `folder: null` ("agent
-    found no matching smart folder"). So the user can tell a deliberate choice from a file the agent
+    plan records it as `skipped` with the note "left in place by agent", apart from `place: null` ("agent
+    found no matching place"). So the user can tell a deliberate choice from a file the agent
     couldn't place.
-    - A skip can't have a folder, rename or `delete`. It needs no image summary, because nothing happens
+    - A skip can't have a place, rename or `delete`. It needs no image summary, because nothing happens
       to the file.
     - The guide uses it for files the user's rules protect, and for subfolders the user already organized
-      by hand (seen with `-r`). Those are skipped as a whole, so the agent doesn't split them. Smart
-      folders are still left out by the scan itself (#14).
+      by hand (seen with `-r`). Those are skipped as a whole, so the agent doesn't split them. Places
+      are still left out by the scan itself (#14).
     - The guide tells the agent to put skipped files in the proposal rather than leave them out, so they
       show up in review. `propose` doesn't enforce this: it doesn't know what the scan returned.
 
@@ -351,7 +351,7 @@ redesigned the rest for a CLI that an agent drives. Open questions are collected
       the latest plan to undo. "active moves" read as moves still running. The count leaves out files
       sent to the system Trash, because `undo` can't restore those.
     - **`skippedDirs`:** without `-r`, `scan` lists the subfolders it left out. Before, 16 subfolders were
-      left out with no message. A smart folder inside the scanned directory counts in `skippedFolders`.
+      left out with no message. A place inside the scanned directory counts in `skippedPlaces`.
     - **`extractedArchives`:** an archive next to a folder with the same name (`x.zip` and `x/`, also
       `.tar.gz`, `.7z`, `.rar` and others). tidybot moves files, not folders (open question 5), so the
       guide tells the agent to tell the user, and to delete the archive only with the user's OK.
@@ -372,10 +372,10 @@ redesigned the rest for a CLI that an agent drives. Open questions are collected
     - **Conflicts say `identical` or `different`.** `refreshWarnings` compares the two files byte for byte
       (sizes first, then 1 MB blocks, stopping at the first difference). It is synchronous, so `plan set`
       and `plan skip` stay synchronous. For identical files the warning says to delete one instead.
-    - **`plan set <files...> --folder <name>`**, also with `--path` and `--delete`. `--name` takes one file
+    - **`plan set <files...> --place <name>`**, also with `--path` and `--delete`. `--name` takes one file
       only. The change is all or nothing: if one file isn't in the plan, nothing is saved. The older
-      `plan set <file> <folder>` still works: when there is no `--folder`, `--path` or `--delete`, a last
-      argument that names a smart folder and is not a file in the plan is the folder. For many different
+      `plan set <file> <place>` still works: when there is no `--place`, `--path` or `--delete`, a last
+      argument that names a place and is not a file in the plan is the place. For many different
       changes, the guide points to `propose --append`, which already takes JSON.
     - **`tidybot preview <files...> [--out <dir>]`** writes a JPEG of at most 1024 px of an image, or of
       a PDF's first page. Some agents' image tools can't open HEIC or WebP. There is no new dependency:
@@ -395,12 +395,24 @@ redesigned the rest for a CLI that an agent drives. Open questions are collected
       which option to raise. Extensions drop a URL query string (`.css?v=1736221786` → `.css`), in
       `survey` and in file types. `--data -` reads stdin, and the guides send large plans that way: the
       run's 332 items were 60 KB on the command line, near `ARG_MAX` on some systems.
+29. **"Smart folders" are now "places"** *(requested, 2026-10-18)*. In macOS Finder, a Smart Folder is a
+    saved search that holds no files. tidybot's folders are real directories that files move into, so
+    the old name gave Mac users the wrong idea. "Smart" also didn't say what is special: the rule.
+    - "Place" comes from "a place for everything, and everything in its place". Places can nest
+      (`~/personal` and `~/personal/tax`), and the word allows that. "Drawer" and "nook" don't.
+    - The rename is complete: `tidybot places …`, `places.yaml` with a `places:` key, `place` in
+      proposals and plan items, `plan set --place`, and `places`, `skippedPlaces` and `place` (in
+      `survey`) in JSON output. "Folder" stays for ordinary directories, such as subfolders and the
+      trash folder.
+    - There's no fallback for the old names, because there are no releases yet. An existing
+      `folders.yaml` must be renamed to `places.yaml`, with its `folders:` key changed to `places:`.
+      Plans made before the rename show no place for their items.
 
 ## 🟡 Open questions
 
 1. **Is `find` enough?** Ranked full-text search plus agent-side semantic search over `summary list` works
    for hundreds or low thousands of files. Past that, `summary list` gets too big for an agent's context.
-   Options: add `--since`, `--folder` or `--type` filters, or store embeddings (which would need a model,
+   Options: add `--since`, `--place` or `--type` filters, or store embeddings (which would need a model,
    and so contradicts decision #1). I'd wait until it hurts.
 2. **Summaries are global, not per-project.** For work and personal files on one machine, would you
    want them kept apart, for example for privacy when sharing a project's `.tidybot`? Nothing sensitive is

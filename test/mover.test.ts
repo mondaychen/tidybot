@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { applyPlan, moveFile, selectMoves, undoMoves } from "../src/mover.js";
 import { propose } from "../src/planner.js";
 import { scan } from "../src/scan.js";
-import { addFolder } from "../src/store/folders.js";
+import { addPlace } from "../src/store/places.js";
 import { loadMoves } from "../src/store/history.js";
 import { FileIndex, findSummaries } from "../src/store/summaries.js";
 import { getSummaries } from "../src/summarize.js";
@@ -20,7 +20,7 @@ beforeEach(() => {
   fs.mkdirSync(dl);
   docs = path.join(root, "docs");
   fs.mkdirSync(docs);
-  addFolder({ name: "Docs", path: docs });
+  addPlace({ name: "Docs", path: docs });
 });
 
 afterEach(() => {
@@ -31,7 +31,7 @@ describe("move safety", () => {
   it("rolls a completed move back if appending its history record fails", async () => {
     const from = write(path.join(dl, "report.txt"), "original contents");
     const to = path.join(docs, "report.txt");
-    const plan = await propose([{ file: from, folder: "Docs" }], { source: dl });
+    const plan = await propose([{ file: from, place: "Docs" }], { source: dl });
     const open = fs.openSync;
     let failedAfterMove = false;
     vi.spyOn(fs, "openSync").mockImplementation((file, flags, mode) => {
@@ -52,7 +52,7 @@ describe("move safety", () => {
   it("does not leave a moved file without undo history when recording fails", async () => {
     const from = write(path.join(dl, "report.txt"), "original contents");
     const to = path.join(docs, "report.txt");
-    const plan = await propose([{ file: from, folder: "Docs" }], { source: dl });
+    const plan = await propose([{ file: from, place: "Docs" }], { source: dl });
     // A directory at the log path reliably blocks writes, even when run as root.
     const history = path.join(root, "home", "history.jsonl");
     fs.mkdirSync(history);
@@ -123,7 +123,7 @@ describe("cache identity after edits", () => {
     await scan(dl, { maxFiles: 10, excerptChars: 100 });
     const oldHash = new FileIndex().cachedHash(from);
     expect(oldHash).toBeTruthy();
-    const plan = await propose([{ file: from, folder: "Docs" }], { source: dl });
+    const plan = await propose([{ file: from, place: "Docs" }], { source: dl });
     if (operation === "undo") expect((await applyPlan(plan)).failed).toEqual([]);
 
     const edited = operation === "apply" ? from : to;
@@ -146,7 +146,7 @@ describe("cache identity after edits", () => {
 describe("filename handling", () => {
   it("a long Chinese rename succeeds at apply time", async () => {
     write(path.join(dl, "3f2a.pdf"), "x");
-    const plan = await propose([{ file: "3f2a.pdf", folder: "Docs", rename: "年度财务报告".repeat(30) }], { source: dl });
+    const plan = await propose([{ file: "3f2a.pdf", place: "Docs", rename: "年度财务报告".repeat(30) }], { source: dl });
     const r = await applyPlan(plan);
     expect(r.failed).toEqual([]);
     expect(r.moved).toHaveLength(1);
@@ -159,7 +159,7 @@ describe("filename handling", () => {
 
   it.runIf(caseInsensitiveFs())("renames a file to a case-only variant and undoes it", async () => {
     write(path.join(dl, "report.pdf"), "x");
-    const plan = await propose([{ file: "report.pdf", folder: null, rename: "Report" }], { source: dl });
+    const plan = await propose([{ file: "report.pdf", place: null, rename: "Report" }], { source: dl });
     expect(plan.items[0]?.warnings).toBeUndefined();
     expect((await applyPlan(plan)).failed).toEqual([]);
     expect(fs.readdirSync(dl)).toEqual(["Report.pdf"]);
@@ -174,7 +174,7 @@ describe("cross-device moves", () => {
     fs.utimesSync(from, 1790611498.797949, 1790611498.797949);
     await scan(dl, { maxFiles: 10, excerptChars: 100 });
     expect((await findSummaries("quarterly", { limit: 5 }))[0]?.paths).toEqual([from]);
-    const plan = await propose([{ file: from, folder: "Docs" }], { source: dl });
+    const plan = await propose([{ file: from, place: "Docs" }], { source: dl });
     const link = fs.linkSync;
     vi.spyOn(fs, "linkSync").mockImplementation((source, destination) => {
       if (source === from) throw Object.assign(new Error("cross device"), { code: "EXDEV" });
