@@ -104,7 +104,7 @@ pnpm link --global      # puts `tidybot` on your PATH
 | `find <words...>` | Searches files by summary, keywords and name |
 | `places list \| add \| edit \| rm` | Places |
 | `rules`, `rules add \| rm`, `rules naming [style]` | General rules and naming style for the agent |
-| `config get \| set \| unset` | `source`, `excerptChars`, `previewChars`, `maxFiles`, `olderThan`, `skipOrganized`, `rename` (auto/always/off), `naming`, `extensionCase` (keep/lower), `historyMaxMoves`, `summariesMax` (0 = unlimited), `allowDelete`, `trashDir` |
+| `config get \| set \| unset` | `source`, `excerptChars`, `previewChars`, `maxFiles`, `olderThan`, `skipOrganized`, `rename` (auto/always/off), `naming`, `extensionCase` (keep/lower), `historyMaxMoves`, `summariesMax` (0 = unlimited), `allowDelete`, `trashDir`, `maskPersonal` |
 | `compact` | Applies `historyMaxMoves` / `summariesMax` now and drops superseded summaries (also runs automatically after writes) |
 | `init [dir] [--copy-global]` | Creates per-project settings (see below) |
 | `status` | Active scope, counts, open plans, moves you can undo |
@@ -177,6 +177,29 @@ Every rule has an ID (`tidybot sensitive rules`), and false positives can be all
 File exceptions are tied to the file's content hash. If the file changes, it's checked again.
 Cached summaries are checked against the current sensitivity rules on every read, including
 `find` and `summary list`, so revoking an exception takes effect immediately.
+
+## Personal data
+
+tidybot can mask personal data in what it shows the agent and in the summaries it keeps. The value
+is replaced with a label, and the words around it stay, so files still sort as before:
+
+| Kind | Example | Masked |
+|---|---|---|
+| `ssn` | `SSN: 536-22-1234` | `SSN: [SSN]` |
+| `passport` | `Passport No.: 123456789` | `Passport No.: [PASSPORT]` |
+| `id-card` | Chinese resident ID number | `[ID CARD]` |
+| `card` | `4111 1111 1111 1111` | `[CARD …1111]` |
+| `iban` | `DE89 3704 0044 0532 0130 00` | `[IBAN …3000]` |
+| `birthday` | `Date of birth: 1990-03-05` | `Date of birth: [DATE OF BIRTH]` |
+| `email` | `john.smith@chase.com` | `[EMAIL]@chase.com` |
+
+It's off by default. Turn it on with `config set maskPersonal all`, or name the kinds:
+`config set maskPersonal ssn,card,iban`. Numbers must pass their check digit or range check, and passport
+numbers and dates of birth count only after the words that name them, so other numbers and dates stay.
+
+Masking covers `scan` and `inspect` excerpts, cached summaries, `find` and `summary list`, including
+summaries saved before you turned it on. It doesn't keep personal data from the model completely: a
+subagent that summarizes a file opens the file itself.
 
 ## Per-project settings (advanced)
 

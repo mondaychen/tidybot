@@ -33,6 +33,13 @@ general rules that fit how this person already organizes files. Save only what t
    - On Linux, deleting stays off until they pick a folder (`tidybot status` shows it): ask
      which one, then `tidybot config set trashDir <dir>`.
 
+10. Ask whether tidybot should **mask personal data**: ID and account numbers (SSN, passport, Chinese ID,
+    card, IBAN), dates of birth and email addresses become labels such as `[SSN]` and `[CARD …1111]` in
+    what tidybot shows and in saved summaries. Files still sort as before. Tell them it doesn't hide these
+    values from the model completely: a subagent that summarizes a file opens the file itself.
+    - All kinds: `tidybot config set maskPersonal all`.
+    - Some: `tidybot config set maskPersonal ssn,passport,card,iban` (also `id-card`, `birthday`, `email`).
+
 ## Writing good place rules
 - One or two sentences describing what belongs (and, if useful, what does not).
 - Mention strong signals: senders, keywords, file types, filename patterns.

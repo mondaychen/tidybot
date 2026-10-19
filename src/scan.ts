@@ -215,12 +215,13 @@ export async function enrich(
   const summaries = opts.noHash ? new Map() : await loadSummaries();
   const allowances = loadAllowances();
   const disabled = new Set(opts.allowRules ?? []);
+  const config = loadConfig();
   let cachedNew = false;
   // Bounded reads keep memory flat, but PDF/Office parsing still buffers up to MAX_DOC_BYTES each.
   await pMap(files, async (f) => {
     // Hash first: per-file allowances are keyed by content hash.
     if (index) f.hash = await index.hashOf(f.path);
-    const r = await extractExcerpt(f.path, opts.excerptChars, waiversFor(f.hash, allowances, disabled));
+    const r = await extractExcerpt(f.path, opts.excerptChars, waiversFor(f.hash, allowances, disabled), config.maskPersonal);
     const { excerpt, complete, sensitive } = r;
     if (excerpt) f.excerpt = excerpt;
     if (complete) f.complete = true;
@@ -253,7 +254,7 @@ export async function enrich(
     }
   }, { concurrency: 4 });
   index?.save();
-  if (cachedNew) compactSummaries(loadConfig().summariesMax);
+  if (cachedNew) compactSummaries(config.summariesMax);
 }
 
 export interface DuplicateGroup {

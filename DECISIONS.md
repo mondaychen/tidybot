@@ -415,6 +415,29 @@ redesigned the rest for a CLI that an agent drives. Open questions are collected
       `folders.yaml` must be renamed to `places.yaml`, with its `folders:` key changed to `places:`.
       Plans made before the rename show no place for their items.
 
+30. **Masking personal data** *(requested, 2026-10-18)*. `config set maskPersonal` replaces ID and account
+    numbers, dates of birth and the part of an email address before the `@` with labels: `[SSN]`,
+    `[PASSPORT]`, `[ID CARD]` (Chinese resident ID), `[CARD …1111]`, `[IBAN …3000]`, `[DATE OF BIRTH]`,
+    `[EMAIL]@chase.com`. The rules follow the personal-data rules in magpie's `internal/redact`.
+    - **Masked, not flagged.** A secret hides the whole file, but a bank statement with an IBAN is an
+      ordinary file that must still be sorted. The words around the value stay, and so do a card's or
+      IBAN's last four digits and an email's domain, because they help to tell files apart.
+    - **Only what the rules can be sure of.** Numbers must pass their check (Luhn, IBAN mod 97, the
+      Chinese ID check digit, the SSN ranges). A passport number or date of birth counts only after the
+      words that name it. Other dates are never masked, because files are sorted by them. Phone
+      numbers, names and addresses are not masked: they have too many forms to find without many false
+      matches.
+    - **Where:** `scan` and `inspect` excerpts (masked before the cut, so no part of a number shows), the
+      cached text of short files, and summaries. `summary save` masks what the agent sends, and a value
+      masked in a summary is also masked in its keywords. Summaries read from `summaries.jsonl` are
+      masked with the current setting, so turning it on also covers summaries saved before.
+    - **Off by default,** and the onboarding guide asks. It doesn't keep personal data from the model:
+      a subagent that summarizes a file opens the file itself, and images and PDF previews aren't
+      masked. What it does is keep these values out of `scan` output, the summary cache, `find` and
+      `summary list`. The subagent prompt also asks for the kind of number instead of the number.
+    - `config set maskPersonal all | none | ssn,card,…`. The kinds are `ssn`, `passport`, `id-card`,
+      `card`, `iban`, `birthday` and `email`.
+
 ## 🟡 Open questions
 
 1. **Is `find` enough?** Ranked full-text search plus agent-side semantic search over `summary list` works

@@ -55,6 +55,8 @@ tidybot gathers the facts and performs the moves; a human reviews your plan firs
 - The user's `rules` apply to everything; a place's `rule` outranks its name.
 - Use filename, type, excerpt and summary together. Excerpts may be empty (images,
   archives, scanned PDFs): rely on the summary, filename and type.
+- Labels such as `[SSN]`, `[CARD …1111]` or `[EMAIL]@chase.com` are personal data that tidybot masked
+  (`maskPersonal`). Sort by the text around them. Don't open the file to find the value.
 - Prefer the most specific place that matches (e.g. "Bills" over "Personal").
 - Use `null` rather than guessing when unsure; give a reason.
 - `confidence` is 0–1 and optional. Keep `reason` under ~15 words.

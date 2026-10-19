@@ -8,6 +8,7 @@ import { Mime } from "mime";
 import otherTypes from "mime/types/other.js";
 import standardTypes from "mime/types/standard.js";
 import { extensionOf } from "./names.js";
+import { maskPersonal, type PersonalKind } from "./personal.js";
 import { sensitiveByContent, sensitiveByName } from "./sensitive.js";
 import type { Waivers } from "./store/allowlist.js";
 
@@ -233,7 +234,13 @@ async function extractPdf(buf: Buffer, limit: number): Promise<{ text: string; w
 
 const NO_WAIVERS: Waivers = { disabled: new Set(), names: false, content: false };
 
-export async function extractExcerpt(file: string, limit: number, waivers: Waivers = NO_WAIVERS): Promise<Extracted> {
+/** `mask`: kinds of personal data to replace with labels in the excerpt (see personal.ts). */
+export async function extractExcerpt(
+  file: string,
+  limit: number,
+  waivers: Waivers = NO_WAIVERS,
+  mask: readonly PersonalKind[] = [],
+): Promise<Extracted> {
   const ext = path.extname(file).toLowerCase();
   const byName = waivers.names ? undefined : sensitiveByName(file, waivers.disabled);
   if (byName) return { method: "none", excerpt: "", complete: false, sensitive: byName.reason, sensitiveRule: byName.rule };
@@ -263,10 +270,12 @@ export async function extractExcerpt(file: string, limit: number, waivers: Waive
     // Check all the text we read, not just the excerpt, so a secret just past the cut still counts.
     const byContent = waivers.content ? undefined : await sensitiveByContent(normalized, { disabled: waivers.disabled });
     if (byContent) return { method, excerpt: "", complete: false, sensitive: byContent.reason, sensitiveRule: byContent.rule };
+    // Mask before the cut, so a number that crosses it isn't shown in part.
+    const masked = maskPersonal(normalized, mask);
     return {
       method,
-      excerpt: normalized.slice(0, limit),
-      complete: normalized.length > 0 && whole && normalized.length <= limit,
+      excerpt: masked.slice(0, limit),
+      complete: masked.length > 0 && whole && masked.length <= limit,
       ...(normalized.length >= MIN_COMPARE_CHARS ? { textHash: createHash("sha256").update(normalized).digest("hex") } : {}),
     };
   } catch (err) {

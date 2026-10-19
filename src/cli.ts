@@ -805,7 +805,7 @@ config
     emit(value, () =>
       key
         ? String(value)
-        : [`(${scopeLabel()})`, ...Object.entries(c).map(([k, v]) => `${k}: ${Array.isArray(v) ? `${v.length} rule(s)` : v === "" ? '""' : v}`)].join("\n"),
+        : [`(${scopeLabel()})`, ...Object.entries(c).map(([k, v]) => `${k}: ${k === "maskPersonal" ? (c.maskPersonal.join(", ") || "(none)") : Array.isArray(v) ? `${v.length} rule(s)` : v === "" ? '""' : v}`)].join("\n"),
     );
   });
 config

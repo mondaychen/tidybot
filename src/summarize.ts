@@ -3,6 +3,7 @@ import path from "node:path";
 import { z } from "zod";
 import { TidyError } from "./errors.js";
 import { mimeOf } from "./extract.js";
+import { maskSummary } from "./personal.js";
 import { resolvePath } from "./paths.js";
 import { sensitiveByContent } from "./sensitive.js";
 import { loadAllowances } from "./store/allowlist.js";
@@ -19,6 +20,7 @@ export async function saveSummaries(input: unknown, opts: { base: string; model?
   const existing = await loadSummaries();
   const allowances = loadAllowances();
   const disabled = new Set(opts.allowRules ?? []);
+  const { maskPersonal: mask, summariesMax } = loadConfig();
   const records: Summary[] = [];
   try {
     for (const s of parsed.data) {
@@ -48,10 +50,12 @@ export async function saveSummaries(input: unknown, opts: { base: string; model?
           "sensitive",
         );
       }
+      // Personal data is masked, not refused: unlike a secret, it doesn't make the summary wrong to keep.
+      const masked = maskSummary(s.summary, s.keywords, mask);
       records.push({
         hash: hash as string,
-        summary: s.summary,
-        keywords: [...new Set(s.keywords.map((k) => k.toLowerCase()))],
+        summary: masked.summary,
+        keywords: [...new Set(masked.keywords)],
         name,
         mime,
         source: "agent",
@@ -64,7 +68,7 @@ export async function saveSummaries(input: unknown, opts: { base: string; model?
   }
   // All-or-nothing: nothing is saved if any summary was refused above.
   for (const record of records) appendSummary(record);
-  compactSummaries(loadConfig().summariesMax);
+  compactSummaries(summariesMax);
   return records;
 }
 

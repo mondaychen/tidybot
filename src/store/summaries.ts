@@ -4,6 +4,7 @@ import MiniSearch from "minisearch";
 import { z } from "zod";
 import { fullHashFile, hashFile } from "../hash.js";
 import { tidybotHome } from "../paths.js";
+import { maskSummary } from "../personal.js";
 import { sensitiveByContent, sensitiveByName } from "../sensitive.js";
 import { loadAllowances } from "./allowlist.js";
 import { loadConfig } from "./config.js";
@@ -44,7 +45,8 @@ export async function loadSummaries(): Promise<Map<string, Summary>> {
   const map = new Map<string, Summary>();
   for (const s of readJsonl<Summary>(summariesFile())) map.set(s.hash, s);
   const allowances = loadAllowances();
-  const disabled = new Set(loadConfig().allowRules);
+  const { allowRules, maskPersonal: mask } = loadConfig();
+  const disabled = new Set(allowRules);
   // All readers (including find and --include-missing) use the current policy.
   // Do not trust a summary just because it was permitted when it was written.
   for (const [hash, s] of map) {
@@ -55,6 +57,8 @@ export async function loadSummaries(): Promise<Map<string, Summary>> {
     }
     // Older builds marked this partial extraction as the full spreadsheet.
     if (s.source === "content" && s.mime === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet") map.delete(hash);
+    // Summaries written before masking was turned on (or before a kind was added) are masked as read.
+    if (map.has(hash) && mask.length) map.set(hash, { ...s, ...maskSummary(s.summary, s.keywords, mask) });
   }
   return map;
 }

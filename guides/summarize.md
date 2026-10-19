@@ -22,13 +22,15 @@ cached automatically).
    > concerns, key dates or amounts>", "keywords": ["<5–10 lowercase search terms:
    > document type, organizations, people, topics, year>"]}]
    > Never copy passwords, keys, tokens or codes into the summary; say what kind of
-   > credential it is instead ("GitHub recovery codes").
+   > credential it is instead ("GitHub recovery codes"). Don't copy ID, passport, card or
+   > account numbers either; name the kind ("US passport", "Visa card ending 1111").
    > Describe images by their content (e.g. "photo of a receipt from Costco dated
    > 2026-03-02", "screenshot of a flight booking"). Do not speculate beyond what is
    > visible. Return only the JSON.
 
    Files flagged `sensitive` never appear in the todo list. `summary save` rejects text
-   that looks like a secret value.
+   that looks like a secret value. If `maskPersonal` is set, it masks personal data such as
+   ID and card numbers.
 4. Save the results: `tidybot summary save --model <model> --data '[...]'`
    (or pipe on stdin). Then continue with `tidybot guide organize`.
 

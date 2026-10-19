@@ -2,6 +2,7 @@ import path from "node:path";
 import { z } from "zod";
 import { TidyError } from "../errors.js";
 import { pinPath, projectDir, tidybotHome } from "../paths.js";
+import { PERSONAL_KINDS, parsePersonalKinds } from "../personal.js";
 import { RULE_IDS } from "../sensitive.js";
 import { readYaml, writeYaml } from "./io.js";
 
@@ -40,6 +41,8 @@ const fields = {
   /** Folder deleted files are moved to, instead of the system Trash / Recycle Bin ("" = system).
    * Required on Linux. Files moved here can be undone like any move. */
   trashDir: z.string(),
+  /** Kinds of personal data replaced with a label in excerpts and summaries (see src/personal.ts). */
+  maskPersonal: z.array(z.enum(PERSONAL_KINDS)),
 };
 
 /** What a config file may contain (no defaults, so a project file only overrides what it sets). */
@@ -62,10 +65,12 @@ export const ConfigSchema = z.object({
   allowRules: fields.allowRules.default([]),
   allowDelete: fields.allowDelete.default(true),
   trashDir: fields.trashDir.default(""),
+  maskPersonal: fields.maskPersonal.default([]),
 });
 export type Config = z.infer<typeof ConfigSchema>;
 
-/** Keys settable with `config set`; list-valued `rules` has its own command. */
+/** Keys settable with `config set`; list-valued `rules` has its own command. `maskPersonal` takes a list
+ * in one value: "ssn,card", "all" or "none". */
 export const SCALAR_KEYS = [
   "source",
   "excerptChars",
@@ -80,6 +85,7 @@ export const SCALAR_KEYS = [
   "summariesMax",
   "allowDelete",
   "trashDir",
+  "maskPersonal",
 ] as const;
 export type ScalarKey = (typeof SCALAR_KEYS)[number];
 
@@ -141,7 +147,15 @@ export function setConfigValue(key: string, raw: string, scope = activeScope()):
     throw new TidyError(`Unknown config key "${key}". Known keys: ${SCALAR_KEYS.join(", ")} (use \`tidybot rules\` for rules)`);
   }
   const def = ConfigSchema.parse({})[key as ScalarKey];
-  const value = typeof def === "number" ? Number(raw) : typeof def === "boolean" ? parseBool(raw) : PATH_KEYS.has(key) && raw ? pinPath(raw) : raw;
+  const value = Array.isArray(def)
+    ? parsePersonalKinds(raw)
+    : typeof def === "number"
+      ? Number(raw)
+      : typeof def === "boolean"
+        ? parseBool(raw)
+        : PATH_KEYS.has(key) && raw
+          ? pinPath(raw)
+          : raw;
   update(scope, (c) => ({ ...c, [key]: value }));
   return loadConfig();
 }
