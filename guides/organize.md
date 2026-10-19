@@ -110,6 +110,21 @@ Detection errs on the side of flagging; `sensitiveRule` says which rule fired
   allowing it with `--content`. Never allow it on your own.
 - **Turning a rule off** everywhere (`tidybot sensitive allow-rule <id>`): only when the user
   asks, e.g. after several false positives from the same rule.
+- **The user's own rule** (`custom.*`): treat it like a content rule. Remove it
+  (`tidybot sensitive rm-rule <name>`) only when the user asks.
+
+### Secrets that tidybot doesn't know
+If an excerpt or a file you opened has a secret value that wasn't flagged (a company's own token,
+an internal key), don't copy it anywhere. Tell the user which file has it, and offer a rule so that
+tidybot finds values like it from now on:
+- `tidybot sensitive add-rule <name> --prefix <text>` for values that all start the same way, e.g.
+  `--prefix acme_tok_`. The value must have 8 or more letters, digits, `_` or `-` after the prefix.
+- `tidybot sensitive add-rule <name> --regex '<pattern>'` for other shapes (JavaScript syntax), e.g.
+  `--regex '\bACME-[0-9]{6}\b'`. Keep it simple: it runs on the text of every file.
+- Write the rule from what all such values share. **Never put a whole secret value in a rule**:
+  rules are saved in plain text in `config.yaml`.
+- Add `--reason "<what it is>"` to say what the rule finds. Add a rule only with the user's OK, and
+  tell them that matching files now show as `sensitive`. Then run `scan` again.
 
 ## Duplicates and similar files
 - `duplicates` are byte-for-byte identical: you may propose deleting the extra copies (see Deleting).

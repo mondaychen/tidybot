@@ -20,7 +20,7 @@ export async function saveSummaries(input: unknown, opts: { base: string; model?
   const existing = await loadSummaries();
   const allowances = loadAllowances();
   const disabled = new Set(opts.allowRules ?? []);
-  const { maskPersonal: mask, summariesMax } = loadConfig();
+  const { maskPersonal: mask, summariesMax, secretRules: custom } = loadConfig();
   const records: Summary[] = [];
   try {
     for (const s of parsed.data) {
@@ -43,7 +43,7 @@ export async function saveSummaries(input: unknown, opts: { base: string; model?
       // A file allowed with --content is known to be harmless text; otherwise vet for secret values.
       const leak = allowances[hash as string]?.content
         ? undefined
-        : await sensitiveByContent([s.summary, ...s.keywords].join("\n"), { valuesOnly: true, disabled });
+        : await sensitiveByContent([s.summary, ...s.keywords].join("\n"), { valuesOnly: true, disabled, custom });
       if (leak) {
         throw new TidyError(
           `Summary for ${s.file ?? s.hash} looks like it contains a secret (${leak.reason}, rule ${leak.rule}). Describe the file without copying credentials.`,

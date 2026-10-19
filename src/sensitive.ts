@@ -141,6 +141,60 @@ export const RULES: readonly RuleInfo[] = [...PATTERNS, SECRETLINT];
 
 export const RULE_IDS = new Set(RULES.map((r) => r.id));
 
+/** A rule the user added for a secret that the rules above don't know, such as a company's own tokens:
+ * a prefix its values start with, or a regular expression (JavaScript syntax) for them. It is a
+ * content rule for secret values, with the id `custom.<name>`, checked before secretlint. */
+export interface CustomRule {
+  name: string;
+  prefix?: string;
+  regex?: string;
+  /** Shown as the reason a file is sensitive. Default: "secret value (custom: <name>)". */
+  reason?: string;
+}
+
+export const MAX_CUSTOM_RULES = 32;
+const MAX_REGEX = 300;
+/** What follows a prefix: a value, as API keys are written. */
+const PREFIX_TAIL = "[A-Za-z0-9_-]{8,}";
+
+const customPattern = (r: CustomRule) =>
+  new RegExp(r.prefix ? `(?<![A-Za-z0-9])${r.prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}${PREFIX_TAIL}` : (r.regex as string));
+
+/** What is wrong with a custom rule, or undefined when it can be used. */
+export function checkCustomRule(r: CustomRule): string | undefined {
+  if (!/^[a-z0-9][a-z0-9-]{0,31}$/.test(r.name)) return `"${r.name}": a rule name is 1 to 32 lowercase letters, digits and dashes`;
+  if (!r.prefix === !r.regex) return `${r.name}: give a prefix or a regular expression, not both`;
+  if (r.prefix !== undefined && (r.prefix.length < 3 || r.prefix.length > 64 || /\s/.test(r.prefix))) {
+    return `${r.name}: a prefix is 3 to 64 characters long, with no spaces`;
+  }
+  if (r.regex !== undefined && r.regex.length > MAX_REGEX) return `${r.name}: a regular expression is at most ${MAX_REGEX} characters long`;
+  let re: RegExp;
+  try {
+    re = customPattern(r);
+  } catch (err) {
+    return `${r.name}: the regular expression doesn't work: ${err instanceof Error ? err.message : String(err)}`;
+  }
+  // A pattern that matches nothing at all matches every file.
+  if (re.test("")) return `${r.name}: the regular expression matches empty text, so every file would be sensitive`;
+  return undefined;
+}
+
+const compiled = new Map<string, Rule>();
+
+/** The custom rules as content rules. A rule that doesn't pass `checkCustomRule` is never stored. */
+function customRules(list: readonly CustomRule[]): Rule[] {
+  return list.map((r) => {
+    const key = JSON.stringify([r.name, r.prefix, r.regex, r.reason]);
+    let rule = compiled.get(key);
+    if (!rule) {
+      const re = customPattern(r);
+      rule = { id: `custom.${r.name}`, kind: "content", reason: r.reason || `secret value (custom: ${r.name})`, value: true, test: (s) => re.test(s) };
+      compiled.set(key, rule);
+    }
+    return rule;
+  });
+}
+
 const SECRETLINT_PREFIX = "@secretlint/secretlint-rule-";
 /** Without filter-comments, a `secretlint-disable` comment in a file can't switch detection off. */
 const SECRETLINT_CONFIG = {
@@ -164,13 +218,15 @@ export function sensitiveByName(file: string, disabled: ReadonlySet<string> = ne
   return hit(PATTERNS.find((r) => r.kind === "name" && !disabled.has(r.id) && r.test(name)));
 }
 
-/** `valuesOnly`: only rules that match actual secret values (used to vet agent-written summaries). */
+/** `valuesOnly`: only rules that match actual secret values (used to vet agent-written summaries).
+ * `custom`: the user's own rules (config `secretRules`). */
 export async function sensitiveByContent(
   text: string,
-  opts: { valuesOnly?: boolean; disabled?: ReadonlySet<string> } = {},
+  opts: { valuesOnly?: boolean; disabled?: ReadonlySet<string>; custom?: readonly CustomRule[] } = {},
 ): Promise<SensitiveHit | undefined> {
+  const rules = opts.custom?.length ? [...PATTERNS, ...customRules(opts.custom)] : PATTERNS;
   const found = hit(
-    PATTERNS.find((r) => r.kind === "content" && (!opts.valuesOnly || r.value) && !opts.disabled?.has(r.id) && r.test(text)),
+    rules.find((r) => r.kind === "content" && (!opts.valuesOnly || r.value) && !opts.disabled?.has(r.id) && r.test(text)),
     text,
   );
   if (found || opts.disabled?.has(SECRETLINT.id)) return found;

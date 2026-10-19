@@ -15,9 +15,11 @@ import {
   type Scope,
   activeScope,
   addRule,
+  addSecretRule,
   loadConfig,
   loadRules,
   removeRule,
+  removeSecretRule,
   setConfigValue,
   setRuleAllowed,
   unsetConfigValue,
@@ -394,11 +396,28 @@ const sensitive = program
 
 sensitive
   .command("rules")
-  .description("detection rules with their ids, and which are turned off")
+  .description("detection rules with their ids, which are turned off, and your own rules")
   .action(() => {
-    const off = new Set(loadConfig().allowRules);
-    const rows = RULES.map((r) => ({ id: r.id, kind: r.kind, reason: r.reason, allowed: off.has(r.id) }));
-    emit(rows, () => rows.map((r) => `${r.allowed ? "off" : "on "}  ${r.id.padEnd(24)} ${r.reason}`).join("\n"));
+    const config = loadConfig();
+    const off = new Set(config.allowRules);
+    const rows = [
+      ...RULES.map((r) => ({ id: r.id, kind: r.kind, reason: r.reason, allowed: off.has(r.id) })),
+      ...config.secretRules.map((r) => ({
+        id: `custom.${r.name}`,
+        kind: "content" as const,
+        reason: r.reason || `secret value (custom: ${r.name})`,
+        allowed: false,
+        ...(r.prefix ? { prefix: r.prefix } : { regex: r.regex }),
+      })),
+    ];
+    emit(rows, () =>
+      rows
+        .map((r) => {
+          const pattern = "prefix" in r ? `  (prefix ${r.prefix})` : "regex" in r ? `  (regex ${r.regex})` : "";
+          return `${r.allowed ? "off" : "on "}  ${r.id.padEnd(24)} ${r.reason}${pattern}`;
+        })
+        .join("\n"),
+    );
   });
 
 sensitive
@@ -472,6 +491,30 @@ sensitive
   .action((id: string) => {
     const list = setRuleAllowed(id, false, writeScope());
     emit({ ok: true, scope: writeScope(), allowRules: list }, () => `Turned ${id} back on (${writeScope()}).`);
+  });
+
+sensitive
+  .command("add-rule")
+  .description(
+    "add your own rule for a secret the built-in rules don't know (files whose content matches become sensitive); " +
+      "an existing rule with this name is replaced",
+  )
+  .argument("<name>", "lowercase letters, digits and dashes; the rule id is custom.<name>")
+  .option("--prefix <text>", "values start with this text, followed by 8 or more letters, digits, _ or -")
+  .option("--regex <pattern>", "a JavaScript regular expression for the values")
+  .option("--reason <text>", "shown as why a file is sensitive (default: secret value (custom: <name>))")
+  .action((name: string, o) => {
+    const list = addSecretRule({ name, prefix: o.prefix, regex: o.regex, reason: o.reason }, writeScope());
+    emit({ ok: true, scope: writeScope(), secretRules: list }, () => `Added custom.${name} (${writeScope()}).`);
+  });
+
+sensitive
+  .command("rm-rule")
+  .description("remove one of your own rules from the current scope")
+  .argument("<name>", "the name given to add-rule (without custom.)")
+  .action((name: string) => {
+    const removed = removeSecretRule(name.replace(/^custom\./, ""), writeScope());
+    emit({ ok: true, scope: writeScope(), removed }, () => `Removed custom.${removed.name} (${writeScope()}).`);
   });
 
 // ---------------------------------------------------------------- plans

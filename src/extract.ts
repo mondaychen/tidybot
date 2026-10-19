@@ -268,7 +268,7 @@ export async function extractExcerpt(
     }
     const normalized = text.replace(/[ \t]+/g, " ").trim();
     // Check all the text we read, not just the excerpt, so a secret just past the cut still counts.
-    const byContent = waivers.content ? undefined : await sensitiveByContent(normalized, { disabled: waivers.disabled });
+    const byContent = waivers.content ? undefined : await sensitiveByContent(normalized, { disabled: waivers.disabled, custom: waivers.custom });
     if (byContent) return { method, excerpt: "", complete: false, sensitive: byContent.reason, sensitiveRule: byContent.rule };
     // Mask before the cut, so a number that crosses it isn't shown in part.
     const masked = maskPersonal(normalized, mask);

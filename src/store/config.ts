@@ -3,8 +3,15 @@ import { z } from "zod";
 import { TidyError } from "../errors.js";
 import { pinPath, projectDir, tidybotHome } from "../paths.js";
 import { PERSONAL_KINDS, parsePersonalKinds } from "../personal.js";
-import { RULE_IDS } from "../sensitive.js";
+import { type CustomRule, MAX_CUSTOM_RULES, RULE_IDS, checkCustomRule } from "../sensitive.js";
 import { readYaml, writeYaml } from "./io.js";
+
+const CustomRuleSchema = z
+  .object({ name: z.string(), prefix: z.string().optional(), regex: z.string().optional(), reason: z.string().optional() })
+  .superRefine((r, ctx) => {
+    const problem = checkCustomRule(r);
+    if (problem) ctx.addIssue({ code: "custom", message: problem });
+  });
 
 export const RENAME_MODES = ["auto", "always", "off"] as const;
 export const EXTENSION_CASES = ["keep", "lower"] as const;
@@ -36,6 +43,8 @@ const fields = {
   rules: z.array(z.string()),
   /** Sensitive-detection rule ids turned off (see `tidybot sensitive rules`). */
   allowRules: z.array(z.string()),
+  /** The user's own rules for secret values (`tidybot sensitive add-rule`). */
+  secretRules: z.array(CustomRuleSchema).max(MAX_CUSTOM_RULES),
   /** Let the agent propose files to delete. Deleted files go to the trash, never straight away. */
   allowDelete: z.boolean(),
   /** Folder deleted files are moved to, instead of the system Trash / Recycle Bin ("" = system).
@@ -63,6 +72,7 @@ export const ConfigSchema = z.object({
   summariesMax: fields.summariesMax.default(0),
   rules: fields.rules.default([]),
   allowRules: fields.allowRules.default([]),
+  secretRules: fields.secretRules.default([]),
   allowDelete: fields.allowDelete.default(true),
   trashDir: fields.trashDir.default(""),
   maskPersonal: fields.maskPersonal.default([]),
@@ -113,7 +123,8 @@ function readRaw(scope: Scope): RawConfig {
 }
 
 /**
- * Global settings with project overrides on top. `rules` and `allowRules` from both scopes are combined.
+ * Global settings with project overrides on top. `rules`, `allowRules` and `secretRules` from both
+ * scopes are combined; a project's secret rule replaces a global one of the same name.
  * Inside a project, `source` defaults to the project root.
  */
 export function loadConfig(): Config {
@@ -125,6 +136,7 @@ export function loadConfig(): Config {
     ...project,
     rules: [...(global.rules ?? []), ...(project.rules ?? [])],
     allowRules: [...new Set([...(global.allowRules ?? []), ...(project.allowRules ?? [])])],
+    secretRules: [...new Map([...(global.secretRules ?? []), ...(project.secretRules ?? [])].map((r) => [r.name, r])).values()],
   });
 }
 
@@ -196,4 +208,24 @@ export function setRuleAllowed(id: string, allowed: boolean, scope = activeScope
   if (!allowed && !current.includes(id)) throw new TidyError(`Rule ${id} isn't allowed in ${scope} config.`, "not_found");
   const next = allowed ? [...new Set([...current, id])] : current.filter((r) => r !== id);
   return update(scope, (c) => ({ ...c, allowRules: next })).allowRules ?? [];
+}
+
+/** Add one of the user's own secret rules, or replace the one with its name, in the given scope. */
+export function addSecretRule(rule: CustomRule, scope = activeScope()): CustomRule[] {
+  const problem = checkCustomRule(rule);
+  if (problem) throw new TidyError(problem, "invalid_input");
+  const current = readRaw(scope).secretRules ?? [];
+  // Only the fields given, so config.yaml has no empty keys.
+  const clean = Object.fromEntries(Object.entries(rule).filter(([, v]) => v !== undefined && v !== "")) as CustomRule;
+  const next = [...current.filter((r) => r.name !== rule.name), clean];
+  if (next.length > MAX_CUSTOM_RULES) throw new TidyError(`At most ${MAX_CUSTOM_RULES} secret rules in ${scope} config.`, "invalid_input");
+  return update(scope, (c) => ({ ...c, secretRules: next })).secretRules ?? [];
+}
+
+export function removeSecretRule(name: string, scope = activeScope()): CustomRule {
+  const current = readRaw(scope).secretRules ?? [];
+  const removed = current.find((r) => r.name === name);
+  if (!removed) throw new TidyError(`No secret rule "${name}" in ${scope} config. See \`tidybot sensitive rules\`.`, "not_found");
+  update(scope, (c) => ({ ...c, secretRules: current.filter((r) => r.name !== name) }));
+  return removed;
 }

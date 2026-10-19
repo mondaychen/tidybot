@@ -4,6 +4,7 @@ import { TidyError } from "./errors.js";
 import { extractExcerpt } from "./extract.js";
 import { resolvePath } from "./paths.js";
 import { type FileAllowance, saveAllowance } from "./store/allowlist.js";
+import { loadConfig } from "./store/config.js";
 import { FileIndex } from "./store/summaries.js";
 
 /** Characters read when re-checking a file's content for allowlisting (more than a typical excerpt). */
@@ -21,14 +22,15 @@ export async function allowFiles(
   if (!opts.reason.trim()) throw new TidyError("Give a --reason (it's shown to the user in `tidybot sensitive list`).", "invalid_input");
   const index = new FileIndex();
   const disabled = new Set(opts.allowRules);
+  const custom = loadConfig().secretRules;
   const result: { allowed: FileAllowance[]; notFlagged: string[] } = { allowed: [], notFlagged: [] };
   const pending: FileAllowance[] = [];
   for (const f of files) {
     const file = resolvePath(f, opts.base);
     if (!fs.existsSync(file) || !fs.statSync(file).isFile()) throw new TidyError(`File not found: ${f}`, "not_found");
     const hash = await index.hashOf(file);
-    const byName = await extractExcerpt(file, CHECK_CHARS, { disabled, names: false, content: true });
-    const byContent = await extractExcerpt(file, CHECK_CHARS, { disabled, names: true, content: false });
+    const byName = await extractExcerpt(file, CHECK_CHARS, { disabled, custom, names: false, content: true });
+    const byContent = await extractExcerpt(file, CHECK_CHARS, { disabled, custom, names: true, content: false });
     if (!byName.sensitive && !byContent.sensitive) {
       result.notFlagged.push(f);
       continue;

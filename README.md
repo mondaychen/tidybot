@@ -173,6 +173,14 @@ Every rule has an ID (`tidybot sensitive rules`), and false positives can be all
 | `sensitive allow <files> --reason "…" --content` | Waives **all** rules for these files | Only with your OK |
 | `sensitive allow-rule <id>` / `disallow-rule <id>` | Turns a rule off or on, in the current scope | Only when you ask |
 | `sensitive list` / `revoke <file\|hash>` | Reviews or removes exceptions | You |
+| `sensitive add-rule <name> --prefix <text>` or `--regex <pattern>` | Adds your own rule for a secret the built-in rules don't know, such as your company's tokens. Its id is `custom.<name>` | With your OK |
+| `sensitive rm-rule <name>` | Removes one of your rules, in the current scope | Only when you ask |
+
+Your own rules are content rules for secret values. A `--prefix` rule matches the prefix followed by 8 or
+more letters, digits, `_` or `-`. A `--regex` rule uses JavaScript syntax, is at most 300 characters,
+and must not match empty text. Rules are kept in `config.yaml` as `secretRules`, at most 32 per scope.
+Project rules are added to the global ones, and a project rule replaces a global rule of the same name.
+Never put a whole secret value in a rule.
 
 File exceptions are tied to the file's content hash. If the file changes, it's checked again.
 Cached summaries are checked against the current sensitivity rules on every read, including

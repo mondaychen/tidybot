@@ -47,6 +47,9 @@ I/O and caching, and the user reviews before anything moves. Output is plain tex
      `tidybot sensitive allow <rel> --source <dir> --reason "..."`. Tell the user which ones.
    - **Content** matches (`content.*`) need the user's OK (`--content`). Turn a whole rule off
      (`sensitive allow-rule <id>`) only when the user asks.
+   - If you see a secret that tidybot didn't flag, don't copy it. Tell the user and offer to add a rule
+     for its shape (`sensitive add-rule`, see `tidybot guide organize`). The user's own rules show as
+     `custom.*`.
 6. **Find files:** `tidybot find <words>`. For vague descriptions, read `tidybot summary list`
    and match by meaning yourself.
 

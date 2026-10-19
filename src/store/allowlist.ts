@@ -1,5 +1,6 @@
 import path from "node:path";
 import { tidybotHome } from "../paths.js";
+import type { CustomRule } from "../sensitive.js";
 import { readJson, writeJson } from "./io.js";
 
 /**
@@ -39,17 +40,24 @@ export function removeAllowance(hash: string): FileAllowance | undefined {
   return removed;
 }
 
-/** What detection should skip for one file. */
+/** What detection should skip for one file, and the user's own rules it adds. */
 export interface Waivers {
   /** Rule ids turned off in config. */
   disabled: ReadonlySet<string>;
+  /** The user's own secret rules (config `secretRules`). */
+  custom?: readonly CustomRule[];
   /** Filename rules waived for this exact content. */
   names: boolean;
   /** All content rules waived for this exact content. */
   content: boolean;
 }
 
-export function waiversFor(hash: string | undefined, allowances: Record<string, FileAllowance>, disabled: ReadonlySet<string>): Waivers {
+export function waiversFor(
+  hash: string | undefined,
+  allowances: Record<string, FileAllowance>,
+  disabled: ReadonlySet<string>,
+  custom: readonly CustomRule[] = [],
+): Waivers {
   const a = hash ? allowances[hash] : undefined;
-  return { disabled, names: !!a, content: !!a?.content };
+  return { disabled, custom, names: !!a, content: !!a?.content };
 }

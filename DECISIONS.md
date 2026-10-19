@@ -438,6 +438,27 @@ redesigned the rest for a CLI that an agent drives. Open questions are collected
     - `config set maskPersonal all | none | ssn,card,…`. The kinds are `ssn`, `passport`, `id-card`,
       `card`, `iban`, `birthday` and `email`.
 
+31. **Your own secret rules** *(requested, 2026-10-19)*. `sensitive add-rule <name> --prefix <text>` or
+    `--regex <pattern>` adds a rule for a secret that the built-in rules and secretlint don't know, such as
+    a company's own tokens. The checks follow magpie's custom masking rules (`internal/redact/rules.go`).
+    - A rule is a content rule for secret values, with the id `custom.<name>`. It runs after the
+      built-in patterns and before secretlint, wherever content is checked: `scan`, `inspect`,
+      `sensitive allow`, `summary save`, and cached summaries as they are read. So adding a rule also
+      hides summaries that were cached before.
+    - A prefix is 3 to 64 characters with no spaces, and must be followed by 8 or more letters, digits,
+      `_` or `-`, not after a letter or digit. A regex is at most 300 characters, must compile, and
+      must not match empty text, because such a rule would flag every file. Names are lowercase letters,
+      digits and dashes. At most 32 rules per scope.
+    - A rule with a bad pattern written into `config.yaml` by hand stops every command with an error,
+      the same as other invalid config. Skipping it silently would hide a secret rule that doesn't work.
+    - Rules are combined across scopes like `rules`. A project rule replaces a global rule of the same
+      name. `add-rule` with an existing name replaces that rule.
+    - There's no `allow-rule` for a custom rule: you remove it with `rm-rule`. The agent may suggest a
+      rule but adds one only with the user's OK, and the guides tell it never to put a whole secret value
+      in a rule, because `config.yaml` is plain text.
+    - Regexes run on the text of every file, so a slow pattern makes scans slow. tidybot doesn't try to
+      detect such patterns; the guide asks the agent to keep them simple.
+
 ## 🟡 Open questions
 
 1. **Is `find` enough?** Ranked full-text search plus agent-side semantic search over `summary list` works

@@ -221,7 +221,7 @@ export async function enrich(
   await pMap(files, async (f) => {
     // Hash first: per-file allowances are keyed by content hash.
     if (index) f.hash = await index.hashOf(f.path);
-    const r = await extractExcerpt(f.path, opts.excerptChars, waiversFor(f.hash, allowances, disabled), config.maskPersonal);
+    const r = await extractExcerpt(f.path, opts.excerptChars, waiversFor(f.hash, allowances, disabled, config.secretRules), config.maskPersonal);
     const { excerpt, complete, sensitive } = r;
     if (excerpt) f.excerpt = excerpt;
     if (complete) f.complete = true;

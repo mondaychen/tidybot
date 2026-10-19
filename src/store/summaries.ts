@@ -45,14 +45,14 @@ export async function loadSummaries(): Promise<Map<string, Summary>> {
   const map = new Map<string, Summary>();
   for (const s of readJsonl<Summary>(summariesFile())) map.set(s.hash, s);
   const allowances = loadAllowances();
-  const { allowRules, maskPersonal: mask } = loadConfig();
+  const { allowRules, maskPersonal: mask, secretRules: custom } = loadConfig();
   const disabled = new Set(allowRules);
   // All readers (including find and --include-missing) use the current policy.
   // Do not trust a summary just because it was permitted when it was written.
   for (const [hash, s] of map) {
     const allowance = allowances[hash];
     if ((!allowance && s.source === "content" && sensitiveByName(s.name, disabled)) ||
-        (!allowance?.content && (await sensitiveByContent([s.summary, ...s.keywords].join("\n"), { valuesOnly: s.source === "agent", disabled })))) {
+        (!allowance?.content && (await sensitiveByContent([s.summary, ...s.keywords].join("\n"), { valuesOnly: s.source === "agent", disabled, custom })))) {
       map.delete(hash);
     }
     // Older builds marked this partial extraction as the full spreadsheet.
