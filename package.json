@@ -45,6 +45,7 @@
   "packageManager": "pnpm@12.6.0",
   "dependencies": {
     "@secretlint/core": "^13.0.7",
+    "@secretlint/profiler": "^13.0.7",
     "@secretlint/secretlint-rule-preset-recommend": "^13.0.7",
     "commander": "^15.0.0",
     "fflate": "^0.8.3",

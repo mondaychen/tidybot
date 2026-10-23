@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- **Memory use of the secret check.** secretlint's profiler kept a record of each check and never
+  removed it. A long run, such as `tidybot ui` or a scan of a big folder, could run out of memory.
+  tidybot now turns the profiler off.
+
 ## 0.2.0
 
 ### Added

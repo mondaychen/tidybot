@@ -11,6 +11,12 @@ describe("sensitive file detection", () => {
     }
   });
 
+  it("keeps no performance marks, so a long run doesn't run out of memory", async () => {
+    const before = performance.getEntriesByType("mark").length;
+    for (let i = 0; i < 20; i++) await sensitiveByContent(`notes ${i}: nothing secret here`);
+    expect(performance.getEntriesByType("mark").length).toBe(before);
+  });
+
   it("flags by content", async () => {
     expect(await sensitiveByContent('{"installed":{"client_id":"x","client_secret":"GOCSPX-abc"}}')).toBeTruthy();
     expect(await sensitiveByContent("token: ghp_" + "a".repeat(36))).toBeTruthy();
