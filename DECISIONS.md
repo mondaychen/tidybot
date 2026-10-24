@@ -20,8 +20,8 @@ redesigned the rest for a CLI that an agent drives. Open questions are collected
 ## What I dropped
 
 - **API keys and the Flask server.** tidybot calls no model, because the agent is the model.
-- **The web UI.** tidybot is a CLI. `scan --recursive` and `survey` cover the useful part of browsing
-  nested directories.
+- **The web UI**, at first. tidybot started as a CLI only. `tidybot ui` (#32) brings back a local web
+  page, but only for the human-facing commands. The agent still uses the CLI.
 
 ## Key decisions
 
@@ -458,6 +458,44 @@ redesigned the rest for a CLI that an agent drives. Open questions are collected
       in a rule, because `config.yaml` is plain text.
     - Regexes run on the text of every file, so a slow pattern makes scans slow. tidybot doesn't try to
       detect such patterns; the guide asks the agent to keep them simple.
+
+32. **Local web interface** *(requested, 2026-10-21)*. `tidybot ui` starts a server on 127.0.0.1 and opens
+    a page for the human-facing commands: review, edit and apply plans, history and undo, find, places,
+    rules, settings, sensitive-file exceptions, recovery and maintenance. Agent-facing commands (`scan`,
+    `propose`, `summary save`, `survey`, …) stay CLI-only.
+    - **Frontend and backend are separate.** The backend is `src/ui/` in the tidybot package. It calls the
+      same functions as the CLI. The frontend is `web/`, a private Solid + Vite package in the pnpm
+      workspace. It talks to the backend only over HTTP. The build puts it in `dist/web`, which the server
+      serves. `src/ui/contract.ts` is the only shared code, and it imports only zod and `@orpc/contract`.
+    - **oRPC, contract-first** (not tRPC, not REST). The contract lists each procedure with a zod schema
+      for its input and a type for its output. The server implements it (`implement(contract)`), and the
+      compiler reports a missing or wrong procedure. The frontend's client is typed from the contract
+      with a type-only import, so no schemas or server code go into the bundle. tRPC takes the client's
+      types from the server router instead, so `web/` would type-check against server code and Node
+      types. Outputs are plain types (`type<T>()`), not schemas: the compiler checks them against what
+      the handlers return, and nothing checks them at run time.
+    - **Errors** reach the client as tidybot's own code and message (`not_found`, `invalid_input`, …), as
+      `--json` gives them. Input problems name the field.
+    - **Local only.** The server moves files, so it accepts only requests from its own page. It listens on
+      127.0.0.1 and checks the Host header (DNS rebinding). An API call needs the session token as
+      `Authorization: Bearer`, and a matching Origin when the browser sends one. The token is in the
+      printed URL (`#token=…`, so it is not sent to the server or logged). Another site can't send the
+      `Authorization` header without a CORS preflight, and the server never allows one. Plan ids must not
+      contain path characters.
+    - **One call at a time.** The server runs calls one after another, because most stores assume one
+      writer. The CLI and the UI can still run at the same time, as two CLI commands can. Moves use the
+      move lock as before.
+    - **Apply needs two steps.** The page shows the dry run (what moves, what is deleted and where it
+      goes), then the user confirms. This replaces the CLI's y/N prompt. The `--yes` gate is for agents,
+      and an agent doesn't use this page.
+    - **Port.** Without `--port`, the server tries 4477 and uses a free port if 4477 is busy. A fixed port
+      has little value, because the session token changes on each run, so an old link stops working
+      anyway. With `--port`, a busy port is an error, so a setup that needs the port (the Vite dev proxy)
+      never gets another one by surprise.
+    - **Scope** comes from where `tidybot ui` starts (or `--project` / `--global`), the same as for any
+      command. Settings pages let the user write to global or project settings when a project is active.
+    - **Not in the UI yet:** `init`, `sensitive allow` (it needs a file list from a scan), and browsing a
+      folder's files before a plan exists.
 
 ## 🟡 Open questions
 

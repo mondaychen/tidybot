@@ -319,6 +319,15 @@ export function recoverMoves(): void {
   }
 }
 
+/** Operations with a journal: interrupted ones that recovery couldn't resolve, or ones another
+ * process is running now. */
+export function pendingOperations(): { id: string; from: string; to: string; backup?: string }[] {
+  return journals().flatMap((file) => {
+    const op = readJson<Operation>(file);
+    return op ? [{ id: path.basename(file, ".json"), from: op.from, to: op.to, ...(op.backup ? { backup: op.backup } : {}) }] : [];
+  });
+}
+
 /** Forget an operation that recovery can't resolve, once the user has checked its files.
  * Nothing on disk besides the journal is touched. */
 export function abandonOperation(id: string): { id: string; from: string; to: string; backup?: string } {

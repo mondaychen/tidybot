@@ -31,9 +31,9 @@
     "CHANGELOG.md"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && node scripts/copy-pdf-data.mjs",
+    "build": "tsc -p tsconfig.build.json && node scripts/copy-pdf-data.mjs && pnpm --filter tidybot-web build",
     "dev": "tsx src/cli.ts",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && pnpm --filter tidybot-web typecheck",
     "test": "vitest run",
     "prepack": "pnpm build",
     "prepublishOnly": "pnpm typecheck && pnpm test"
@@ -44,6 +44,8 @@
   "license": "Apache-2.0",
   "packageManager": "pnpm@12.6.0",
   "dependencies": {
+    "@orpc/contract": "1.15.5",
+    "@orpc/server": "1.15.5",
     "@secretlint/core": "^13.0.7",
     "@secretlint/secretlint-rule-preset-recommend": "^13.0.7",
     "commander": "^15.0.0",
@@ -59,6 +61,7 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@orpc/client": "1.15.5",
     "@types/node": "^26.6.2",
     "@types/picomatch": "^4.0.3",
     "@types/write-file-atomic": "^4.0.3",

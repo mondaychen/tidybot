@@ -110,8 +110,27 @@ pnpm link --global      # puts `tidybot` on your PATH
 | `compact` | Applies `historyMaxMoves` / `summariesMax` now and drops superseded summaries (also runs automatically after writes) |
 | `init [dir] [--copy-global]` | Creates per-project settings (see below) |
 | `status` | Active scope, counts, open plans, moves you can undo |
+| `ui [--port n] [--no-open]` | Opens the web interface (see below) |
 
 Global flags: `--json` (or `TIDYBOT_JSON=1`), `-g/--global`, `--project <dir>`.
+
+## Web interface
+
+`tidybot ui` starts a local server and opens a page in your browser. On this page you can do the
+human-facing tasks without commands:
+
+- Review a plan, change where files go, rename them, skip them or mark them for deletion, then apply
+  the plan. Before files move, the page shows each move and deletion, and you confirm.
+- See the history and undo a plan, a batch or single moves.
+- Search your files by summary.
+- Edit places, rules, the naming style, settings and sensitive-file rules and exceptions.
+- Resolve interrupted moves, and compact the history.
+
+The agent still uses the CLI to scan and to propose plans. The server listens on 127.0.0.1 only. It
+uses port 4477, or a free port if 4477 is busy. `--port <n>` uses exactly that port, and `--port 0`
+any free port. The printed link holds a key for this session, so
+open that link. Press Ctrl+C to stop the server. Settings follow the same scope as other commands: run
+`tidybot ui` in a project, or give `--project <dir>` or `--global`.
 
 ## Smart rename
 
@@ -249,8 +268,18 @@ recovery is ambiguous, tidybot preserves them and reports the recovery journal's
 
 ```bash
 pnpm test        # vitest
-pnpm typecheck
+pnpm typecheck   # the CLI and the web frontend
 pnpm dev -- scan ~/Downloads
+```
+
+The web interface has two parts. `src/ui/` is the server, and `web/` is the frontend (Solid + Vite).
+They share only `src/ui/contract.ts`, an [oRPC](https://orpc.dev) contract: the server implements it, and
+the frontend's client is typed from it. `pnpm build` builds the frontend into `dist/web`. To work on the
+frontend with hot reload, start the API with a fixed key, then start Vite:
+
+```bash
+TIDYBOT_UI_TOKEN=dev pnpm dev ui --no-open --port 4477   # Vite expects the API here
+pnpm --filter tidybot-web dev                             # then open http://localhost:5173/#token=dev
 ```
 
 See [DECISIONS.md](./DECISIONS.md) for design choices and open questions.

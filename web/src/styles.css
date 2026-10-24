@@ -1,0 +1,64 @@
+/* Wireframe look on purpose: plain boxes and system fonts until the real design comes. */
+:root {
+  --ink: #222;
+  --muted: #777;
+  --line: #999;
+  --soft: #f2f2f2;
+  --accent: #222;
+  --bad: #a00;
+  --warn: #8a5a00;
+  color-scheme: light;
+  font: 14px/1.45 system-ui, sans-serif;
+  color: var(--ink);
+}
+body { margin: 0; background: #fff; }
+main { padding: 16px; max-width: 1200px; }
+h1 { font-size: 20px; margin: 8px 0 12px; }
+h2 { font-size: 15px; margin: 0 0 8px; }
+h3 { font-size: 14px; margin: 12px 0 4px; }
+a { color: inherit; }
+code, .path { font: 12px ui-monospace, monospace; }
+
+.top { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: baseline; padding: 8px 16px; border-bottom: 1px solid var(--line); }
+.top nav { display: flex; flex-wrap: wrap; gap: 4px; }
+.top nav a { padding: 2px 8px; border: 1px dashed transparent; text-decoration: none; }
+.top nav a.active { border-color: var(--line); background: var(--soft); }
+
+.box { border: 1px solid var(--line); padding: 12px; margin: 12px 0; }
+.panel { border: 1px dashed var(--line); padding: 12px; margin: 8px 0; background: var(--soft); }
+.row { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin: 8px 0; }
+.stack { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.stack label { display: flex; flex-direction: column; gap: 2px; }
+.stack .row label, .stack fieldset label, fieldset label { display: block; }
+fieldset { border: 1px dashed var(--line); margin: 0; }
+dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 0; }
+dt { color: var(--muted); }
+dd { margin: 0; }
+.muted { color: var(--muted); }
+.error { color: var(--bad); border-left: 3px solid var(--bad); padding-left: 8px; white-space: pre-wrap; }
+.warning { margin: 0; padding: 8px 16px; border-bottom: 1px solid var(--warn); color: var(--warn); }
+.warn { color: var(--warn); }
+.result { border-left: 3px solid var(--line); padding-left: 8px; }
+.confirm { display: inline-flex; gap: 4px; align-items: center; border: 1px dashed var(--bad); padding: 2px 6px; }
+.scope { display: inline-block; margin-bottom: 8px; }
+
+table { border-collapse: collapse; width: 100%; margin: 8px 0; }
+th, td { border: 1px solid #ccc; padding: 4px 6px; text-align: left; vertical-align: top; }
+thead th { background: var(--soft); }
+td.actions { white-space: nowrap; }
+td.actions > * + * { margin-left: 4px; }
+tr.editor > td { background: var(--soft); }
+.items tr.status-moved, .items tr.status-trashed, .items tr.status-skipped { color: var(--muted); }
+.notes { max-width: 360px; }
+.bulk { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; border: 1px dashed var(--line); padding: 8px; background: var(--soft); }
+
+button { font: inherit; padding: 2px 10px; border: 1px solid var(--line); background: #fff; cursor: pointer; }
+button.primary { border-color: var(--accent); font-weight: 600; }
+button.danger { border-color: var(--bad); color: var(--bad); }
+button:disabled { opacity: 0.5; cursor: default; }
+input, select, textarea { font: inherit; border: 1px solid var(--line); padding: 2px 4px; max-width: 100%; }
+
+.tag { display: inline-block; padding: 0 6px; border: 1px solid var(--line); font-size: 12px; }
+.tag.invalid, .tag.failed { border-color: var(--bad); color: var(--bad); }
+.tag.pending, .tag.open { border-style: dashed; }
+.hits { list-style: none; padding: 0; }
