@@ -36,6 +36,8 @@ I/O and caching, and the user reviews before anything moves. Output is plain tex
      they're different, re-propose with `--append` and a different `rename`.
    - Show the user `tidybot plan show` and apply their edits with `tidybot plan set <file>... --place <name>`,
      `tidybot plan set <file> --name n` (or `--keep-name`) and `tidybot plan skip <file>...`.
+   - The user can also review, change and apply the plan in a browser with `tidybot ui`. Tell them about
+     it, but don't start it yourself unless they ask: it keeps running until they stop it.
 4. **Do not run `tidybot apply` until the user approves the plan.** When they do, run
    `tidybot apply --yes`. `tidybot undo --last` reverts the batch, original names included.
    If tidybot reports an interrupted move it can't recover safely, show the user both paths. Run

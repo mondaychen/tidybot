@@ -128,6 +128,9 @@ export class MoveBatch {
         item.status = entry.kind === "trash" || entry.trash ? "trashed" : "moved";
         item.operationId = entry.id;
         item.note = undefined;
+        // A name clash can give the file another name than the plan proposed ("a (1).txt").
+        const name = path.basename(op.to);
+        if (entry.kind === "move" && !entry.trash && name !== (item.newName ?? path.basename(item.file))) item.newName = name;
       }
     }
     this.done.push(op);
@@ -315,6 +318,27 @@ export function recoverMoves(): void {
     withMoveLock(recoverPendingMoves);
   } catch (err) {
     if (err instanceof TidyError && err.code === "busy") return;
+    throw err;
+  }
+}
+
+/** Operations with a journal: interrupted ones that recovery couldn't resolve, or ones another
+ * process is running now. */
+export function pendingOperations(): { id: string; from: string; to: string; backup?: string }[] {
+  return journals().flatMap((file) => {
+    const op = readJson<Operation>(file);
+    return op ? [{ id: path.basename(file, ".json"), from: op.from, to: op.to, ...(op.backup ? { backup: op.backup } : {}) }] : [];
+  });
+}
+
+/** Operations that recovery couldn't resolve. While another process moves files, the journals are
+ * its work in progress, not interrupted moves, so there is nothing to report. */
+export function interruptedOperations(): ReturnType<typeof pendingOperations> {
+  if (!journals().length) return [];
+  try {
+    return withMoveLock(pendingOperations);
+  } catch (err) {
+    if (err instanceof TidyError && err.code === "busy") return [];
     throw err;
   }
 }

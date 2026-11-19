@@ -37,6 +37,8 @@ import { allowFiles } from "./allow.js";
 import { RULES } from "./sensitive.js";
 import { type TrashStatus, trashStatus } from "./trash.js";
 import { loadAllowances, removeAllowance } from "./store/allowlist.js";
+import { openInBrowser } from "./ui/open.js";
+import { DEFAULT_PORT, startUiServer } from "./ui/server.js";
 
 const int = (v: string) => {
   const n = Number.parseInt(v, 10);
@@ -928,6 +930,17 @@ program
         `can undo:     ${data.undoableMoves} move(s)${data.lastUndoablePlan ? `  (latest plan: tidybot undo --plan ${data.lastUndoablePlan})` : ""}`,
       ].join("\n"),
     );
+  });
+
+program
+  .command("ui")
+  .description("open a local web page to review and apply plans, undo moves, and edit places, rules and settings")
+  .option("-p, --port <n>", `port on 127.0.0.1, 0 = any free port (default: ${DEFAULT_PORT}, or a free port if it is busy)`, int)
+  .option("--no-open", "print the address only; don't open a browser")
+  .action(async (o) => {
+    const server = await startUiServer({ port: o.port, token: process.env.TIDYBOT_UI_TOKEN });
+    emit({ ok: true, url: server.url, port: server.port }, () => `tidybot UI (${scopeLabel()}): ${server.url}\nThe link holds this session's key. Press Ctrl+C to stop.`);
+    if (o.open) openInBrowser(server.url);
   });
 
 program.parseAsync().catch(fail);

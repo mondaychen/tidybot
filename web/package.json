@@ -1,0 +1,23 @@
+{
+  "name": "tidybot-web",
+  "private": true,
+  "description": "Web frontend for `tidybot ui`. Talks to the tidybot UI server only through the API in ../src/ui/contract.ts",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json"
+  },
+  "dependencies": {
+    "@orpc/client": "1.15.5",
+    "@solidjs/router": "1.0.0",
+    "solid-js": "1.9.17"
+  },
+  "devDependencies": {
+    "@orpc/contract": "1.15.5",
+    "@types/node": "^26.6.2",
+    "typescript": "^7.0.2",
+    "vite": "8.2.4",
+    "vite-plugin-solid": "2.11.14"
+  }
+}
