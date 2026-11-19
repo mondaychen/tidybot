@@ -30,7 +30,7 @@ import { addPlace, loadPlaces, placesFile, removePlace, updatePlace } from "../s
 import { type Plan as StoredPlan, listPlans, loadPlan, planState, savePlan } from "../store/plans.js";
 import { FileIndex, compactSummaries, findSummaries } from "../store/summaries.js";
 import { trashStatus } from "../trash.js";
-import { type Plan, type PlanCounts, type PlanItem, type PlanSummary, SCALAR_KEYS, type UndoState, contract } from "./contract.js";
+import { type Plan, type PlanCounts, type PlanItem, type PlanSummary, SCALAR_KEYS, type TrashStatus, type UndoState, contract } from "./contract.js";
 
 // The contract keeps its own copy of the settable keys, because it can't import server code.
 // These two lines fail to compile when the lists differ.
@@ -106,10 +106,11 @@ const summaries = (filter: (p: StoredPlan) => boolean): PlanSummary[] => {
     .map((p) => toSummary(p, moves));
 };
 
-/** Changes when anything in the stored plan changes, so `apply` can tell that the preview is out of date. */
-const revisionOf = (p: StoredPlan) =>
+/** Changes when anything that the preview shows changes: the stored plan, and where deleted files
+ * go. So `apply` can tell that the preview is out of date. */
+const revisionOf = (p: StoredPlan, trash: TrashStatus) =>
   createHash("sha256")
-    .update(JSON.stringify([p.discarded ?? false, p.items]))
+    .update(JSON.stringify([p.discarded ?? false, p.items, trash]))
     .digest("hex")
     .slice(0, 16);
 
@@ -163,14 +164,14 @@ export const router = api.router({
     }),
     preview: api.plans.preview.handler(async ({ input }) => {
       const preview = await applyPlan(loadPlan(input.planId), { dryRun: true });
-      const revision = revisionOf(loadPlan(input.planId));
-      return { wouldMove: preview.wouldMove ?? [], wouldTrash: preview.wouldTrash ?? [], trash: trashStatus(loadConfig()), revision };
+      const trash = trashStatus(loadConfig());
+      return { wouldMove: preview.wouldMove ?? [], wouldTrash: preview.wouldTrash ?? [], trash, revision: revisionOf(loadPlan(input.planId), trash) };
     }),
     apply: api.plans.apply.handler(async ({ input }) => {
       const plan = loadPlan(input.planId);
-      // The agent can change the plan through the CLI while the user looks at the preview.
-      if (input.revision !== undefined && input.revision !== revisionOf(plan)) {
-        throw new TidyError("The plan changed after you checked it. Check it again, then apply it.", "plan_changed");
+      // The agent can change the plan, or the trash setting, through the CLI while the user looks at the preview.
+      if (input.revision !== undefined && input.revision !== revisionOf(plan, trashStatus(loadConfig()))) {
+        throw new TidyError("The plan or the trash setting changed after you checked it. Check it again, then apply it.", "plan_changed");
       }
       const { moved, trashed, failed } = await applyPlan(plan, { onConflict: input.onConflict });
       return { result: { moved, trashed, failed }, plan: toPlan(plan) };

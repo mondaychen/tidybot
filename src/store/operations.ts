@@ -128,6 +128,9 @@ export class MoveBatch {
         item.status = entry.kind === "trash" || entry.trash ? "trashed" : "moved";
         item.operationId = entry.id;
         item.note = undefined;
+        // A name clash can give the file another name than the plan proposed ("a (1).txt").
+        const name = path.basename(op.to);
+        if (entry.kind === "move" && !entry.trash && name !== (item.newName ?? path.basename(item.file))) item.newName = name;
       }
     }
     this.done.push(op);

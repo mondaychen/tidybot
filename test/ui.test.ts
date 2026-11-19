@@ -41,13 +41,19 @@ beforeEach(async () => {
 });
 
 /** A raw request, so tests can send the headers a browser on another site would. */
-function request(opts: { method?: string; path: string; headers?: Record<string, string>; body?: string }): Promise<{ status: number; body: string }> {
+function request(opts: {
+  method?: string;
+  path: string;
+  headers?: Record<string, string>;
+  body?: string;
+  port?: number;
+}): Promise<{ status: number; body: string; headers: http.IncomingHttpHeaders }> {
   return new Promise((resolve, reject) => {
-    const req = http.request({ host: "127.0.0.1", port: server.port, method: opts.method ?? "POST", path: opts.path, headers: opts.headers }, (res) => {
+    const req = http.request({ host: "127.0.0.1", port: opts.port ?? server.port, method: opts.method ?? "POST", path: opts.path, headers: opts.headers }, (res) => {
       let body = "";
       res.setEncoding("utf8");
       res.on("data", (c: string) => (body += c));
-      res.on("end", () => resolve({ status: res.statusCode ?? 0, body }));
+      res.on("end", () => resolve({ status: res.statusCode ?? 0, body, headers: res.headers }));
     });
     req.on("error", reject);
     req.end(opts.body);
@@ -106,6 +112,22 @@ describe("ui server", () => {
     expect((await request({ method: "GET", path: "/%00" })).status).toBe(400);
     expect((await request({ method: "GET", path: `/${"a".repeat(5000)}` })).status).toBe(400);
     expect((await request({ method: "GET", path: "/" })).status).toBe(200);
+  });
+
+  it("caches the built assets only, and keeps running when the page is gone", async () => {
+    // A folder named "assets" above the frontend doesn't make the page an asset.
+    const web = write(path.join(root, "assets/web/index.html"), "<!doctype html>");
+    write(path.join(root, "assets/web/assets/app.js"), "1");
+    const other = await startUiServer({ port: 0, token: TOKEN, staticDir: path.dirname(web) });
+    onTestFinished(() => other.close());
+    const get = (p: string) => request({ method: "GET", path: p, port: other.port });
+    expect((await get("/")).headers["cache-control"]).toBe("no-cache");
+    expect((await get("/assets/app.js")).headers["cache-control"]).toContain("immutable");
+
+    // A build empties the folder while the server runs.
+    fs.rmSync(web);
+    expect((await get("/plans/p1")).status).toBe(503);
+    expect((await get("/assets/app.js")).status).toBe(200);
   });
 });
 
@@ -231,6 +253,28 @@ describe("ui methods", () => {
     const again = await api.plans.preview({ planId: plan.id });
     const { result } = await api.plans.apply({ planId: plan.id, onConflict: "fail", revision: again.revision });
     expect(result.moved).toHaveLength(1);
+  });
+
+  it("refuses to apply when the trash setting changed after the preview", async () => {
+    onPlatform("darwin");
+    write(path.join(dl, "bill copy.txt"), "electric bill");
+    const plan = await propose([{ file: "bill copy.txt", delete: true }], { source: dl });
+    await api.config.set({ key: "trashDir", value: path.join(root, "bin"), scope: "global" });
+    const { revision } = await api.plans.preview({ planId: plan.id });
+    // Now a deleted file would go to the system Trash, where undo can't reach it.
+    await api.config.unset({ key: "trashDir", scope: "global" });
+    expect(await codeOf(api.plans.apply({ planId: plan.id, onConflict: "fail", revision }))).toBe("plan_changed");
+    expect(fs.existsSync(path.join(dl, "bill copy.txt"))).toBe(true);
+  });
+
+  it("shows the name that a file got when its name was taken", async () => {
+    const file = write(path.join(dl, "bill.txt"), "electric bill");
+    write(path.join(root, "bills", "bill.txt"), "an older bill");
+    addPlace({ name: "Bills", path: path.join(root, "bills"), rule: "bills" });
+    const plan = await propose([{ file: "bill.txt", place: "Bills" }], { source: dl });
+    const { result, plan: applied } = await api.plans.apply({ planId: plan.id, onConflict: "rename" });
+    expect(result.moved.map((m) => path.basename(m.to))).toEqual(["bill (1).txt"]);
+    expect(applied.items.find((i) => i.file === file)).toMatchObject({ status: "moved", newName: "bill (1).txt" });
   });
 
   it("says how many cut-off moves a recovery resolved", async () => {

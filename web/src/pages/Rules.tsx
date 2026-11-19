@@ -25,7 +25,13 @@ export function RulesPage() {
 
       <Loaded resource={config}>
         {(data) => (
-          <Naming config={scope() === "global" ? data().global : data().config} pending={set.pending() || unset.pending()} onSet={(k, v) => void set.run(k, v)} onUnset={(k) => void unset.run(k)} />
+          <Naming
+            config={scope() === "global" ? data().global : data().config}
+            inProject={scope() === "project"}
+            pending={set.pending() || unset.pending()}
+            onSet={(k, v) => void set.run(k, v)}
+            onUnset={(k) => void unset.run(k)}
+          />
         )}
       </Loaded>
       <ErrorText error={set.error() ?? unset.error()} />
@@ -70,7 +76,14 @@ export function RulesPage() {
   );
 }
 
-function Naming(props: { config: Config; pending: boolean; onSet: (key: ScalarKey, value: string) => void; onUnset: (key: ScalarKey) => void }) {
+function Naming(props: {
+  config: Config;
+  /** Changes go to the project. There, an empty style is a value: it turns the global style off. */
+  inProject: boolean;
+  pending: boolean; onSet: (key: ScalarKey, value: string) => void; onUnset: (key: ScalarKey) => void;
+}) {
+  // Only `unset` gives a project the global style back, so a project saves "" for no style.
+  const clear = () => (props.inProject ? props.onSet("naming", "") : props.onUnset("naming"));
   const [naming, setNaming] = createSignal(props.config.naming);
   // A new value from the server, or the other scope's value, replaces the draft.
   createEffect(on(() => props.config.naming, setNaming, { defer: true }));
@@ -99,7 +112,7 @@ function Naming(props: { config: Config; pending: boolean; onSet: (key: ScalarKe
         onSubmit={(e) => {
           e.preventDefault();
           if (naming().trim()) props.onSet("naming", naming().trim());
-          else props.onUnset("naming");
+          else clear();
         }}
       >
         <label>
@@ -121,11 +134,16 @@ function Naming(props: { config: Config; pending: boolean; onSet: (key: ScalarKe
             disabled={props.pending || !props.config.naming}
             onClick={() => {
               setNaming("");
-              props.onUnset("naming");
+              clear();
             }}
           >
             Clear
           </button>
+          <Show when={props.inProject}>
+            <button type="button" disabled={props.pending} onClick={() => props.onUnset("naming")}>
+              Use the global style
+            </button>
+          </Show>
         </div>
       </form>
     </section>

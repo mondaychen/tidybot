@@ -174,16 +174,26 @@ export async function startUiServer(opts: { port?: number; token?: string; stati
       res.writeHead(404).end();
       return;
     }
+    // A build that runs now empties the folder first.
+    if (!isFile && !fs.existsSync(file)) {
+      res.writeHead(503, { "content-type": "text/plain; charset=utf-8" });
+      res.end("The tidybot web frontend is missing (is a build running?). Reload this page in a moment.");
+      return;
+    }
     res.writeHead(200, {
       "content-type": mime.getType(file) ?? "application/octet-stream",
       // Built assets have content hashes in their names; the page itself must not be cached.
-      "cache-control": file.includes(`${path.sep}assets${path.sep}`) ? "public, max-age=31536000, immutable" : "no-cache",
+      "cache-control": path.relative(staticDir, file).startsWith(`assets${path.sep}`) ? "public, max-age=31536000, immutable" : "no-cache",
       "content-security-policy": "default-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
       "x-content-type-options": "nosniff",
       "referrer-policy": "no-referrer",
     });
     if (req.method === "HEAD") res.end();
-    else fs.createReadStream(file).pipe(res);
+    // The file can go away after the checks above. Without a listener, the error would stop the process.
+    else
+      fs.createReadStream(file)
+        .on("error", () => res.destroy())
+        .pipe(res);
   }
 
   const server = http.createServer((req, res) => {
