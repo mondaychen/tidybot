@@ -117,14 +117,23 @@ Global flags: `--json` (or `TIDYBOT_JSON=1`), `-g/--global`, `--project <dir>`.
 ## Web interface
 
 `tidybot ui` starts a local server and opens a page in your browser. On this page you can do the
-human-facing tasks without commands:
+human-facing tasks without commands. The page has four parts:
 
-- Review a plan, change where files go, rename them, skip them or mark them for deletion, then apply
-  the plan. Before files move, the page shows each move and deletion, and you confirm.
-- See the history and undo a plan, a batch or single moves.
-- Search your files by summary.
-- Edit places, rules, the naming style, settings and sensitive-file rules and exceptions.
-- Resolve interrupted moves, and compact the history.
+- **Plans:** the plans that wait for your review. A plan shows its files in groups, one for each
+  destination, with the files that need attention first. The menu on a file's row changes where it
+  goes (a place, another folder, the trash, or nowhere), and the change is saved at once. You can
+  also rename a file, or change many files at once. Before files move, the page shows how many go to
+  each folder, and you confirm. After that, one button puts them back.
+- **History:** your past plans. Put back all the files of a plan here, or single files on the plan's
+  page.
+
+Each view describes a plan with the same words and numbers, such as "332 files: 284 moved, 20
+deleted and 28 left where they are", and gives both times ("proposed", "applied"). Files that went to
+the system Trash can't be put back by tidybot: restore them from the Trash.
+- **Find:** search your files by summary while you type.
+- **Setup:** places, naming and rules, sensitive files, and the other settings in plain words.
+
+If moves were cut off, the start page shows them, so you can resolve them.
 
 The agent still uses the CLI to scan and to propose plans. The server listens on 127.0.0.1 only. It
 uses port 4477, or a free port if 4477 is busy. `--port <n>` uses exactly that port, and `--port 0`

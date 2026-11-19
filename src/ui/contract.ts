@@ -32,6 +32,41 @@ export interface PlanItem {
   warnings?: string[];
   note?: string;
   operationId?: string;
+  /** For a moved or deleted file: whether undo can put it back (see UndoState). */
+  undo?: UndoState;
+}
+
+/**
+ * What undo can do for a moved or deleted file. `available`: put it back. `putBack`: already put back.
+ * `systemTrash`: it is in the system Trash; restore it from there. `forgotten`: its history entry was
+ * dropped, so it stays where it is.
+ */
+export type UndoState = "available" | "putBack" | "systemTrash" | "forgotten";
+
+/**
+ * A plan's files by what happens or happened to them. Every file is in exactly one of the first
+ * seven counts, so they add up to `total`. The server counts them, so each view shows the same numbers.
+ */
+export interface PlanCounts {
+  total: number;
+  /** Waiting to be applied. */
+  toMove: number;
+  toDelete: number;
+  /** Can't be applied as they are (invalid, failed), or would clash with another file. */
+  attention: number;
+  /** Skipped by the agent or the user. */
+  left: number;
+  /** Applied and not put back. */
+  moved: number;
+  deleted: number;
+  /** Applied, then undone. */
+  putBack: number;
+  /** Of `deleted`: in the system Trash, so undo can't put them back. */
+  inSystemTrash: number;
+  /** Files that undo can put back now. */
+  canUndo: number;
+  /** Of `canUndo`: deleted files, in the trash folder. The others are moved files. */
+  canUndoDeleted: number;
 }
 
 export interface PlaceInfo {
@@ -57,15 +92,18 @@ export interface Plan {
   context?: PlanContext;
   items: PlanItem[];
   state: PlanState;
+  counts: PlanCounts;
+  /** When the plan was applied (its last move), or null. */
+  appliedAt: string | null;
 }
 
 export interface PlanSummary {
   id: string;
   state: PlanState;
   createdAt: string;
+  appliedAt: string | null;
   source: string;
-  pending: number;
-  total: number;
+  counts: PlanCounts;
 }
 
 export interface Move {
@@ -143,6 +181,8 @@ export interface ApplyPreview {
   wouldMove: { file: string; to: string }[];
   wouldTrash: string[];
   trash: TrashStatus;
+  /** Identifies the plan as previewed. Give it to `apply`, which refuses a plan that changed since. */
+  revision: string;
 }
 
 export interface UndoResult {
@@ -165,8 +205,10 @@ export interface SensitiveRule {
   reason: string;
   /** Turned off (in either scope). */
   allowed: boolean;
-  /** Set for the user's own rules. */
-  custom?: { prefix?: string; regex?: string };
+  /** The scopes that turn it off. To turn it on, remove it from each of them. */
+  allowedIn: Scope[];
+  /** Set for the user's own rules, with the scope that holds the rule. */
+  custom?: { prefix?: string; regex?: string; scope: Scope };
 }
 
 export interface FileAllowance {
@@ -234,7 +276,7 @@ export const contract = {
     skip: oc.input(z.object({ planId, files })).output(type<Plan>()),
     discard: oc.input(z.object({ planId })).output(type<Plan>()),
     preview: oc.input(z.object({ planId })).output(type<ApplyPreview>()),
-    apply: oc.input(z.object({ planId, onConflict: z.enum(["fail", "rename"]) })).output(type<{ result: ApplyResult; plan: Plan }>()),
+    apply: oc.input(z.object({ planId, onConflict: z.enum(["fail", "rename"]), revision: z.string().optional() })).output(type<{ result: ApplyResult; plan: Plan }>()),
   },
 
   history: {
@@ -276,7 +318,8 @@ export const contract = {
   },
 
   config: {
-    get: oc.output(type<{ config: Config; scope: Scope; keys: ScalarKey[] }>()),
+    /** `config` is what applies here (project values over global ones); `global` is the global scope alone. */
+    get: oc.output(type<{ config: Config; global: Config; scope: Scope; keys: ScalarKey[] }>()),
     set: oc.input(z.object({ key: z.enum(SCALAR_KEYS), value: z.string(), scope })).output(type<Config>()),
     unset: oc.input(z.object({ key: z.enum(SCALAR_KEYS), scope })).output(type<Config>()),
   },

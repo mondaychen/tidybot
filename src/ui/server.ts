@@ -40,8 +40,13 @@ function defaultStaticDir(): string | undefined {
   return candidates.find((dir) => fs.existsSync(path.join(dir, "index.html")));
 }
 
-const sameToken = (given: string | undefined, token: string) =>
-  !!given && given.length === token.length && timingSafeEqual(Buffer.from(given), Buffer.from(token));
+/** timingSafeEqual throws when the byte lengths differ, and a non-ASCII character has more than one byte. */
+function sameToken(given: string | undefined, token: string): boolean {
+  if (!given) return false;
+  const a = Buffer.from(given);
+  const b = Buffer.from(token);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
 
 /** An error reply in oRPC's format, so the client shows its message. */
 function fail(res: http.ServerResponse, status: number, code: string, message: string): void {
@@ -52,7 +57,7 @@ function fail(res: http.ServerResponse, status: number, code: string, message: s
 /** HTTP status for an expected failure. */
 function statusFor(code: string): number {
   if (code === "not_found") return 404;
-  if (code === "busy" || code === "recovery_required") return 409;
+  if (code === "busy" || code === "recovery_required" || code === "plan_changed") return 409;
   return 400;
 }
 
@@ -120,16 +125,18 @@ export async function startUiServer(opts: { port?: number; token?: string; stati
     return run;
   }
 
-  async function api(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
-    if (req.method !== "POST") return fail(res, 405, "method_not_allowed", "Use POST.");
-    const origin = req.headers.origin;
-    if (origin !== undefined && origin !== `http://${req.headers.host}`) return fail(res, 403, "forbidden", "Cross-origin requests are not allowed.");
-    const given = /^Bearer (.+)$/.exec(req.headers.authorization ?? "")?.[1];
-    if (!sameToken(given, token)) return fail(res, 401, "unauthorized", "Missing or wrong session key. Open the link that `tidybot ui` printed.");
+  async function api(req: http.IncomingMessage, res: http.ServerResponse, pathname: string): Promise<void> {
+    // Nothing here may throw outside the try: this runs with `void`, so a rejection would stop the process.
     try {
+      if (req.method !== "POST") return fail(res, 405, "method_not_allowed", "Use POST.");
+      const origin = req.headers.origin;
+      if (origin !== undefined && origin !== `http://${req.headers.host}`) return fail(res, 403, "forbidden", "Cross-origin requests are not allowed.");
+      const given = /^Bearer (.+)$/.exec(req.headers.authorization ?? "")?.[1];
+      if (!sameToken(given, token)) return fail(res, 401, "unauthorized", "Missing or wrong session key. Open the link that `tidybot ui` printed.");
       const { matched } = await serialized(async () => {
         try {
-          recoverMoves();
+          // As in the CLI, the recover call does this itself, so it can say what it resolved.
+          if (pathname !== "/api/recover/run") recoverMoves();
         } catch (err) {
           // Only moves need a clean slate; they check again and refuse to start.
           if (!(err instanceof TidyError && err.code === "recovery_required")) throw err;
@@ -153,7 +160,14 @@ export async function startUiServer(opts: { port?: number; token?: string; stati
       return;
     }
     const wanted = path.join(staticDir, decodeURIComponent(pathname));
-    const isFile = isWithin(wanted, staticDir) && fs.statSync(wanted, { throwIfNoEntry: false })?.isFile();
+    let isFile = false;
+    try {
+      isFile = isWithin(wanted, staticDir) && !!fs.statSync(wanted, { throwIfNoEntry: false })?.isFile();
+    } catch {
+      // A path the file system refuses (a NUL byte, a name that is too long) is not a file.
+      res.writeHead(400).end();
+      return;
+    }
     // Any other path is a page of the single-page app.
     const file = isFile ? wanted : path.join(staticDir, "index.html");
     if (!isFile && path.extname(pathname)) {
@@ -186,7 +200,7 @@ export async function startUiServer(opts: { port?: number; token?: string; stati
       res.writeHead(400).end();
       return;
     }
-    if (pathname.startsWith("/api/")) void api(req, res);
+    if (pathname.startsWith("/api/")) void api(req, res, pathname);
     else serveStatic(req, res, pathname);
   });
 

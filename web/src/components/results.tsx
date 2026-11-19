@@ -17,9 +17,9 @@ export function UndoResultView(props: { result: UndoResult; onForgotten?: () => 
   );
   return (
     <div class="result">
-      <p>{props.result.undone.length || props.result.failed.length ? `Restored ${plural(props.result.undone.length, "file")}.` : "Nothing to undo."}</p>
+      <p>{props.result.undone.length || props.result.failed.length ? `Put back ${plural(props.result.undone.length, "file")}.` : "Nothing to put back."}</p>
       <Show when={props.result.failed.length}>
-        <p>Couldn't undo:</p>
+        <p>Couldn't put back:</p>
         <ul>
           <For each={props.result.failed}>
             {(f) => (

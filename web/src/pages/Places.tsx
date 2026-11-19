@@ -18,21 +18,18 @@ export function PlacesPage() {
 
   return (
     <>
-      <h1>Places</h1>
-      <p class="muted">Folders that files go to. Your agent reads each rule to decide what belongs where. Removing a place doesn't touch files on disk.</p>
+      <p class="muted">The folders your files go to. Your agent reads the description of each place to decide what belongs there.</p>
+      <AddPlace onAdded={changed} />
       <Loaded resource={places}>
         {(data) => (
           <>
-            <p>
-              {data().scope === "project" ? "Project places" : "Global places"}, saved in <PathText path={data().file} />
-            </p>
-            <Show when={data().places.length} fallback={<p class="muted">No places yet.</p>}>
+            <Show when={data().places.length} fallback={<p class="empty">No places yet. Add the folders where you keep things, such as Bills or Photos.</p>}>
               <table>
                 <thead>
                   <tr>
                     <th>Name</th>
                     <th>Folder</th>
-                    <th>Rule</th>
+                    <th>What goes there</th>
                     <th />
                   </tr>
                 </thead>
@@ -47,14 +44,14 @@ export function PlacesPage() {
                             <td>
                               <PathText path={place.path} />
                             </td>
-                            <td>{place.rule || <span class="muted">(no rule)</span>}</td>
+                            <td>{place.rule || <span class="muted">(no description: the agent goes by the name)</span>}</td>
                             <td class="actions">
                               <button type="button" onClick={() => setEditing(place.name)}>
                                 Edit
                               </button>
                               <ConfirmButton
                                 label="Remove"
-                                question={`Remove ${place.name}?`}
+                                question={`Remove ${place.name}? The folder and its files stay.`}
                                 confirmLabel="Remove"
                                 disabled={remove.pending()}
                                 onConfirm={() => void remove.run(place.name)}
@@ -81,30 +78,46 @@ export function PlacesPage() {
               </table>
             </Show>
             <ErrorText error={update.error() ?? remove.error()} />
+            <p class="muted small">
+              {data().scope === "project" ? "Project places" : "Global places"}, saved in <PathText path={data().file} />
+            </p>
           </>
         )}
       </Loaded>
-      <AddPlace onAdded={changed} />
     </>
   );
 }
 
 function AddPlace(props: { onAdded: () => void }) {
-  const [formKey, setFormKey] = createSignal(0);
+  const [open, setOpen] = createSignal(false);
   const add = createAction(
     (place: PlaceInfo) => api.places.add(place),
     () => {
-      setFormKey(formKey() + 1);
+      setOpen(false);
       props.onAdded();
     },
   );
   return (
-    <section class="box">
-      <h2>Add a place</h2>
-      {/* Re-created after each add, so the fields start empty. */}
-      <For each={[formKey()]}>{() => <PlaceForm initial={{ name: "", path: "", rule: "" }} submitLabel="Add" pending={add.pending()} onSubmit={(p) => void add.run(p)} />}</For>
-      <ErrorText error={add.error()} />
-    </section>
+    <Show
+      when={open()}
+      fallback={
+        <button type="button" class="primary" onClick={() => setOpen(true)}>
+          Add a place
+        </button>
+      }
+    >
+      <section class="box">
+        <h2>Add a place</h2>
+        <PlaceForm
+          initial={{ name: "", path: "", rule: "" }}
+          submitLabel="Add"
+          pending={add.pending()}
+          onSubmit={(p) => void add.run(p)}
+          onCancel={() => setOpen(false)}
+        />
+        <ErrorText error={add.error()} />
+      </section>
+    </Show>
   );
 }
 
@@ -121,13 +134,28 @@ function PlaceForm(props: { initial: PlaceInfo; submitLabel: string; pending: bo
       }}
     >
       <label>
-        Name <input type="text" required value={name()} onInput={(e) => setName(e.currentTarget.value)} />
+        Name{" "}
+        <input
+          type="text"
+          required
+          placeholder="Bills"
+          value={name()}
+          ref={(el) => queueMicrotask(() => el.focus())}
+          onInput={(e) => setName(e.currentTarget.value)}
+        />
       </label>
       <label>
         Folder <input type="text" required size={50} placeholder="~/Documents/Bills" value={path()} onInput={(e) => setPath(e.currentTarget.value)} />
       </label>
       <label>
-        Rule <textarea rows={2} cols={60} placeholder="What belongs here, in your words" value={rule()} onInput={(e) => setRule(e.currentTarget.value)} />
+        What goes there{" "}
+        <textarea
+          rows={2}
+          cols={60}
+          placeholder="In your words, such as: utility bills and receipts"
+          value={rule()}
+          onInput={(e) => setRule(e.currentTarget.value)}
+        />
       </label>
       <div class="row">
         <button type="submit" class="primary" disabled={props.pending}>

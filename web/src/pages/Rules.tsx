@@ -1,5 +1,5 @@
 import type { Config, ScalarKey } from "@contract";
-import { For, Show, createResource, createSignal } from "solid-js";
+import { For, Show, createEffect, createResource, createSignal, on } from "solid-js";
 import { api } from "../api";
 import { useApp } from "../app-context";
 import { ConfirmButton, ErrorText, Loaded, ScopePicker, createAction, createScope } from "../components/ui";
@@ -21,17 +21,18 @@ export function RulesPage() {
 
   return (
     <>
-      <h1>Rules</h1>
-      <p class="muted">How your agent names files, and instructions that apply to every place. Project rules are added to the global ones.</p>
       <ScopePicker value={scope()} onChange={setScope} />
 
       <Loaded resource={config}>
-        {(data) => <Naming config={data().config} pending={set.pending() || unset.pending()} onSet={(k, v) => void set.run(k, v)} onUnset={(k) => void unset.run(k)} />}
+        {(data) => (
+          <Naming config={scope() === "global" ? data().global : data().config} pending={set.pending() || unset.pending()} onSet={(k, v) => void set.run(k, v)} onUnset={(k) => void unset.run(k)} />
+        )}
       </Loaded>
       <ErrorText error={set.error() ?? unset.error()} />
 
       <section class="box">
-        <h2>General rules</h2>
+        <h2>Rules</h2>
+        <p class="muted">Instructions your agent follows for every file, in your words. Project rules are added to the global ones.</p>
         <Loaded resource={rules}>
           {(data) => (
             <For each={data().byScope}>
@@ -71,9 +72,11 @@ export function RulesPage() {
 
 function Naming(props: { config: Config; pending: boolean; onSet: (key: ScalarKey, value: string) => void; onUnset: (key: ScalarKey) => void }) {
   const [naming, setNaming] = createSignal(props.config.naming);
+  // A new value from the server, or the other scope's value, replaces the draft.
+  createEffect(on(() => props.config.naming, setNaming, { defer: true }));
   return (
     <section class="box">
-      <h2>Renaming</h2>
+      <h2>Naming</h2>
       <div class="stack">
         <label>
           Rename files{" "}
@@ -142,7 +145,13 @@ function AddRule(props: { pending: boolean; onAdd: (text: string) => Promise<unk
     >
       <label>
         New rule
-        <textarea rows={2} cols={60} placeholder="e.g. never move files with 'draft' in the name" value={text()} onInput={(e) => setText(e.currentTarget.value)} />
+        <textarea
+          rows={2}
+          cols={60}
+          placeholder="e.g. never move files with 'draft' in the name"
+          value={text()}
+          onInput={(e) => setText(e.currentTarget.value)}
+        />
       </label>
       <div>
         <button type="submit" class="primary" disabled={props.pending}>

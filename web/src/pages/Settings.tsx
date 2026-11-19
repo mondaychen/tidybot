@@ -1,30 +1,87 @@
-import type { Config, InterruptedOperation, PersonalKind, ScalarKey } from "@contract";
+import type { Config, PersonalKind, ScalarKey } from "@contract";
 import { For, type JSX, Show, createEffect, createResource, createSignal, on } from "solid-js";
 import { api } from "../api";
 import { useApp } from "../app-context";
-import { ConfirmButton, ErrorText, Loaded, PathText, ScopePicker, createAction, createScope } from "../components/ui";
+import { Collapsible, ConfirmButton, ErrorText, Loaded, ScopePicker, createAction, createFlash, createScope } from "../components/ui";
 import { plural } from "../format";
 
-type Editor = { kind: "text"; placeholder?: string } | { kind: "number" } | { kind: "choice"; options: string[] } | { kind: "personal" };
+type Editor = { kind: "text"; placeholder?: string } | { kind: "number" } | { kind: "switch" } | { kind: "personal" };
 
-const KEYS: Record<ScalarKey, { help: string; editor: Editor }> = {
-  source: { help: "Folder to tidy when none is given", editor: { kind: "text", placeholder: "~/Downloads" } },
-  olderThan: { help: "Leave recent files alone, e.g. 14d, 2w, 3m (empty = off)", editor: { kind: "text", placeholder: "14d" } },
-  skipOrganized: { help: "Skip files already inside a place when scanning", editor: { kind: "choice", options: ["true", "false"] } },
-  rename: { help: "auto: only unhelpful names and conflicts; always: every file; off: never", editor: { kind: "choice", options: ["auto", "always", "off"] } },
-  naming: { help: "Naming style for renames, in your words", editor: { kind: "text" } },
-  extensionCase: { help: "keep: .HEIC stays; lower: .heic", editor: { kind: "choice", options: ["keep", "lower"] } },
-  allowDelete: { help: "Let the agent propose files to delete (they go to the trash)", editor: { kind: "choice", options: ["true", "false"] } },
-  trashDir: { help: "Folder for deleted files instead of the system Trash (empty = system). Moves there can be undone", editor: { kind: "text" } },
-  maskPersonal: { help: "Personal data replaced with a label in what the agent sees and in summaries", editor: { kind: "personal" } },
-  excerptChars: { help: "Characters of content read per file for the agent", editor: { kind: "number" } },
-  previewChars: { help: "Characters of content per file in the compact scan", editor: { kind: "number" } },
-  maxFiles: { help: "Files per scan page", editor: { kind: "number" } },
-  historyMaxMoves: { help: "Moves kept in history (0 = unlimited). Older moves can't be undone", editor: { kind: "number" } },
-  summariesMax: { help: "Summaries kept (0 = unlimited)", editor: { kind: "number" } },
-};
+interface Setting {
+  key: ScalarKey;
+  label: string;
+  help: string;
+  editor: Editor;
+}
 
-const PERSONAL: PersonalKind[] = ["ssn", "passport", "id-card", "card", "iban", "birthday", "email"];
+/** The settings, in words, in the groups a person looks for them. Renaming is on the "Naming and rules" page. */
+const GROUPS: { title: string; open: boolean; settings: Setting[] }[] = [
+  {
+    title: "Tidying",
+    open: true,
+    settings: [
+      { key: "source", label: "Folder to tidy", help: "Used when you don't name a folder.", editor: { kind: "text", placeholder: "~/Downloads" } },
+      {
+        key: "olderThan",
+        label: "Leave recent files alone",
+        help: "Only tidy files older than this, such as 14d, 2w or 3m. Empty: tidy all files.",
+        editor: { kind: "text", placeholder: "14d" },
+      },
+      { key: "skipOrganized", label: "Skip files that are already in a place", help: "", editor: { kind: "switch" } },
+    ],
+  },
+  {
+    title: "Deleting",
+    open: true,
+    settings: [
+      {
+        key: "allowDelete",
+        label: "Let the agent suggest files to delete",
+        help: "Such as extra copies. They go to the trash, and you approve each plan.",
+        editor: { kind: "switch" },
+      },
+      {
+        key: "trashDir",
+        label: "Trash folder",
+        help: "Empty: the system Trash. Files in a trash folder can be put back from History.",
+        editor: { kind: "text", placeholder: "system Trash" },
+      },
+    ],
+  },
+  {
+    title: "Privacy",
+    open: true,
+    settings: [
+      {
+        key: "maskPersonal",
+        label: "Hide from the agent",
+        help: "Replaced with a label in what the agent reads and in summaries.",
+        editor: { kind: "personal" },
+      },
+    ],
+  },
+  {
+    title: "Advanced",
+    open: false,
+    settings: [
+      { key: "excerptChars", label: "Characters the agent reads per file", help: "", editor: { kind: "number" } },
+      { key: "previewChars", label: "Characters per file in a scan", help: "", editor: { kind: "number" } },
+      { key: "maxFiles", label: "Files per scan page", help: "", editor: { kind: "number" } },
+      { key: "historyMaxMoves", label: "Changes kept in History", help: "0: no limit. Older changes can't be undone.", editor: { kind: "number" } },
+      { key: "summariesMax", label: "File summaries kept", help: "0: no limit.", editor: { kind: "number" } },
+    ],
+  },
+];
+
+const PERSONAL: { kind: PersonalKind; label: string }[] = [
+  { kind: "ssn", label: "Social security numbers" },
+  { kind: "passport", label: "Passport numbers" },
+  { kind: "id-card", label: "ID card numbers" },
+  { kind: "card", label: "Payment card numbers" },
+  { kind: "iban", label: "Bank account numbers (IBAN)" },
+  { kind: "birthday", label: "Birth dates" },
+  { kind: "email", label: "Email addresses" },
+];
 
 /** A setting's value as `config set` takes it. */
 function valueText(config: Config, key: ScalarKey): string {
@@ -42,160 +99,142 @@ export function SettingsPage() {
   };
   const set = createAction((key: ScalarKey, value: string) => api.config.set({ key, value, scope: scope() }), changed);
   const unset = createAction((key: ScalarKey) => api.config.unset({ key, scope: scope() }), changed);
+  const pending = () => set.pending() || unset.pending();
 
   return (
     <>
-      <h1>Settings</h1>
       <ScopePicker value={scope()} onChange={setScope} />
+      <ErrorText error={set.error() ?? unset.error()} />
       <Loaded resource={config}>
         {(data) => (
-          <section class="box">
-            <h2>Values in effect</h2>
-            <p class="muted">"Reset" removes the value from the chosen settings, so the global value or the default applies.</p>
-            <table>
-              <tbody>
-                <For each={data().keys}>
-                  {(key) => (
-                    <ConfigRow
-                      name={key}
-                      value={valueText(data().config, key)}
-                      pending={set.pending() || unset.pending()}
-                      onSet={(v) => void set.run(key, v)}
-                      onUnset={() => void unset.run(key)}
-                    />
-                  )}
-                </For>
-              </tbody>
-            </table>
-            <ErrorText error={set.error() ?? unset.error()} />
-          </section>
+          <For each={GROUPS}>
+            {(group) => (
+              <Collapsible class="box" open={group.open} title={<strong>{group.title}</strong>}>
+                <div class="settings">
+                  <For each={group.settings.filter((s) => data().keys.includes(s.key))}>
+                    {(setting) => (
+                      <SettingRow
+                        setting={setting}
+                        // A global change starts from the global value, not from the project's.
+                        value={valueText(scope() === "global" ? data().global : data().config, setting.key)}
+                        pending={pending()}
+                        onSet={async (v) => (await set.run(setting.key, v)) !== undefined}
+                        onUnset={async () => (await unset.run(setting.key)) !== undefined}
+                      />
+                    )}
+                  </For>
+                </div>
+                <Show when={group.title === "Advanced"}>
+                  <Maintenance />
+                </Show>
+              </Collapsible>
+            )}
+          </For>
         )}
       </Loaded>
-      <Recovery />
-      <Maintenance />
     </>
   );
 }
 
-function ConfigRow(props: { name: ScalarKey; value: string; pending: boolean; onSet: (value: string) => void; onUnset: () => void }) {
-  const meta = KEYS[props.name];
+/** One setting. Switches and checkboxes save at once; text saves with Enter or Save. */
+function SettingRow(props: { setting: Setting; value: string; pending: boolean; onSet: (value: string) => Promise<boolean>; onUnset: () => Promise<boolean> }) {
   const [draft, setDraft] = createSignal(props.value);
-  // A new value from the server (after Set or Reset) replaces the draft.
+  const [saved, showSaved] = createFlash(2000);
+  // A new value from the server (after a save or a reset) replaces the draft.
   createEffect(on(() => props.value, setDraft, { defer: true }));
+  const save = async (value: string) => {
+    const ok = await props.onSet(value);
+    if (ok) showSaved("Saved");
+    return ok;
+  };
+  const id = `setting-${props.setting.key}`;
+
   const editor = (): JSX.Element => {
-    const e = meta.editor;
-    if (e.kind === "choice") {
+    const e = props.setting.editor;
+    if (e.kind === "switch") {
       return (
-        <select value={draft()} onChange={(ev) => setDraft(ev.currentTarget.value)}>
-          <For each={e.options}>{(o) => <option value={o}>{o}</option>}</For>
-        </select>
+        <input
+          id={id}
+          type="checkbox"
+          checked={props.value === "true"}
+          disabled={props.pending}
+          onChange={async (ev) => {
+            const box = ev.currentTarget;
+            if (!(await save(String(box.checked)))) box.checked = props.value === "true";
+          }}
+        />
       );
     }
     if (e.kind === "personal") {
-      const chosen = () => new Set(draft() === "none" ? [] : draft().split(","));
+      const chosen = () => new Set(props.value === "none" ? [] : props.value.split(","));
       const toggle = (kind: PersonalKind, on: boolean) => {
-        const next = PERSONAL.filter((k) => (k === kind ? on : chosen().has(k)));
-        setDraft(next.join(",") || "none");
+        const next = PERSONAL.map((p) => p.kind).filter((k) => (k === kind ? on : chosen().has(k)));
+        void save(next.join(",") || "none");
       };
       return (
-        <span class="row">
+        <div class="checks">
           <For each={PERSONAL}>
-            {(k) => (
+            {(p) => (
               <label>
-                <input type="checkbox" checked={chosen().has(k)} onChange={(ev) => toggle(k, ev.currentTarget.checked)} /> {k}
+                <input type="checkbox" checked={chosen().has(p.kind)} disabled={props.pending} onChange={(ev) => toggle(p.kind, ev.currentTarget.checked)} />{" "}
+                {p.label}
               </label>
             )}
           </For>
-        </span>
+        </div>
       );
     }
     return (
-      <input
-        type={e.kind === "number" ? "number" : "text"}
-        min={e.kind === "number" ? 0 : undefined}
-        size={e.kind === "number" ? 8 : 40}
-        placeholder={e.kind === "text" ? e.placeholder : undefined}
-        value={draft()}
-        onInput={(ev) => setDraft(ev.currentTarget.value)}
-      />
+      <form
+        class="inline"
+        onSubmit={(ev) => {
+          ev.preventDefault();
+          void save(draft());
+        }}
+      >
+        <input
+          id={id}
+          type={e.kind === "number" ? "number" : "text"}
+          min={e.kind === "number" ? 0 : undefined}
+          // An empty number would be saved as 0. Use Reset to remove a value.
+          required={e.kind === "number"}
+          size={e.kind === "number" ? 8 : 36}
+          placeholder={e.kind === "text" ? e.placeholder : undefined}
+          value={draft()}
+          onInput={(ev) => setDraft(ev.currentTarget.value)}
+          onKeyDown={(ev) => ev.key === "Escape" && setDraft(props.value)}
+        />
+        <Show when={draft() !== props.value}>
+          <button type="submit" class="primary" disabled={props.pending}>
+            Save
+          </button>
+        </Show>
+      </form>
     );
   };
-  return (
-    <tr>
-      <th>
-        <code>{props.name}</code>
-      </th>
-      <td>
-        <div>{editor()}</div>
-        <div class="muted">{meta.help}</div>
-      </td>
-      <td class="actions">
-        <button type="button" class="primary" disabled={props.pending || draft() === props.value} onClick={() => props.onSet(draft())}>
-          Set
-        </button>
-        <button
-          type="button"
-          disabled={props.pending}
-          onClick={() => props.onUnset()}
-        >
-          Reset
-        </button>
-      </td>
-    </tr>
-  );
-}
-
-function Recovery() {
-  const app = useApp();
-  const [done, setDone] = createSignal<string>();
-  const recover = createAction(
-    () => api.recover.run(),
-    (r) => {
-      setDone(r.resolved ? `Resolved ${plural(r.resolved, "operation")}.` : "Nothing more to recover.");
-      app.refreshStatus();
-    },
-  );
-  const abandon = createAction(
-    (id: string) => api.recover.abandon({ ids: [id] }),
-    (r) => {
-      setDone(`Abandoned ${r.map((o) => o.id).join(", ")}. Files were left as they are.`);
-      app.refreshStatus();
-    },
-  );
-  const interrupted = (): InterruptedOperation[] => app.status()?.interrupted ?? [];
 
   return (
-    <section class="box" id="recovery">
-      <h2>Interrupted moves</h2>
-      <Show when={interrupted().length} fallback={<p class="muted">None. tidybot finishes or rolls back interrupted moves on its own.</p>}>
-        <p>
-          These moves or undos were cut off, and tidybot couldn't tell what to do safely. Check the files, then try again, or abandon the record (files are
-          not touched).
-        </p>
-        <ul>
-          <For each={interrupted()}>
-            {(op) => (
-              <li>
-                <code>{op.id}</code>: <PathText path={op.from} /> → {op.to ? <PathText path={op.to} /> : "system Trash"}
-                <Show when={op.backup}>{(b) => <div class="muted">A copy may be at <PathText path={b()} /></div>}</Show>{" "}
-                <ConfirmButton
-                  label="Abandon"
-                  question="Have you checked these files? Abandon this record?"
-                  confirmLabel="Abandon"
-                  disabled={abandon.pending()}
-                  onConfirm={() => void abandon.run(op.id)}
-                />
-              </li>
-            )}
-          </For>
-        </ul>
-        <button type="button" disabled={recover.pending()} onClick={() => void recover.run()}>
-          Try recovery again
-        </button>
-      </Show>
-      <ErrorText error={recover.error() ?? abandon.error()} />
-      <Show when={done()}>{(m) => <p class="result">{m()}</p>}</Show>
-    </section>
+    <div class="setting">
+      <label for={id}>{props.setting.label}</label>
+      <div>
+        <div class="row tight">
+          {editor()}
+          <Show when={saved()}>{(m) => <span class="flash">{m()}</span>}</Show>
+          <button
+            type="button"
+            class="link"
+            disabled={props.pending}
+            title="Remove this value here, so the global value or the default applies"
+            onClick={() => void props.onUnset()}
+          >
+            Reset
+          </button>
+        </div>
+        <Show when={props.setting.help}>
+          <div class="muted">{props.setting.help}</div>
+        </Show>
+      </div>
+    </div>
   );
 }
 
@@ -203,20 +242,20 @@ function Maintenance() {
   const [message, setMessage] = createSignal<string>();
   const compact = createAction(
     () => api.maintenance.compact(),
-    (r) => setMessage(`Dropped ${plural(r.droppedMoves, "move")} and ${plural(r.droppedSummaries, "summary record")}.`),
+    (r) => setMessage(`Dropped ${plural(r.droppedMoves, "change")} and ${plural(r.droppedSummaries, "summary", "summaries")}.`),
   );
   const prune = createAction(
     () => api.maintenance.prune(),
-    (r) => setMessage(`Forgot ${plural(r.pruned, "stale location")}.`),
+    (r) => setMessage(`Forgot ${plural(r.pruned, "old location")}.`),
   );
   return (
-    <section class="box">
-      <h2>Maintenance</h2>
+    <div class="maintenance">
+      <h3>Clean up</h3>
       <div class="row">
         <ConfirmButton
-          label="Compact history and summaries"
-          question="Apply historyMaxMoves and summariesMax now? Dropped moves can't be undone."
-          confirmLabel="Compact"
+          label="Trim history and summaries now"
+          question="Drop what is over the limits above? Dropped changes can't be undone."
+          confirmLabel="Trim"
           disabled={compact.pending()}
           onConfirm={() => void compact.run()}
         />
@@ -226,6 +265,6 @@ function Maintenance() {
       </div>
       <ErrorText error={compact.error() ?? prune.error()} />
       <Show when={message()}>{(m) => <p class="result">{m()}</p>}</Show>
-    </section>
+    </div>
   );
 }

@@ -328,6 +328,18 @@ export function pendingOperations(): { id: string; from: string; to: string; bac
   });
 }
 
+/** Operations that recovery couldn't resolve. While another process moves files, the journals are
+ * its work in progress, not interrupted moves, so there is nothing to report. */
+export function interruptedOperations(): ReturnType<typeof pendingOperations> {
+  if (!journals().length) return [];
+  try {
+    return withMoveLock(pendingOperations);
+  } catch (err) {
+    if (err instanceof TidyError && err.code === "busy") return [];
+    throw err;
+  }
+}
+
 /** Forget an operation that recovery can't resolve, once the user has checked its files.
  * Nothing on disk besides the journal is touched. */
 export function abandonOperation(id: string): { id: string; from: string; to: string; backup?: string } {

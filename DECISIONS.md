@@ -485,8 +485,29 @@ redesigned the rest for a CLI that an agent drives. Open questions are collected
     - **One call at a time.** The server runs calls one after another, because most stores assume one
       writer. The CLI and the UI can still run at the same time, as two CLI commands can. Moves use the
       move lock as before.
-    - **Apply needs two steps.** The page shows the dry run (what moves, what is deleted and where it
-      goes), then the user confirms. This replaces the CLI's y/N prompt. The `--yes` gate is for agents,
+    - **Built for the task, not for the commands** (Laws of UX). The first version had one page for each
+      command and showed the data as the stores keep it (status values, ids, config keys). Now:
+      - The menu has four items, not eight (Hick's law): Plans, History, Find and Setup. Setup holds
+        what the user changes seldom.
+      - A plan shows its files in groups, one for each destination (common region, chunking). Files
+        that need attention come first, and guesses below 60% confidence are marked (Von Restorff).
+      - The menu on a file's row changes where it goes at once, without an editor and a Save step
+        (Fitts's law, Doherty threshold).
+      - A bar at the bottom keeps the totals and Apply in view (goal gradient). After apply, the result
+        has its own Undo (peak-end rule).
+      - **One summary for each plan, made by the server.** Each plan and plan summary has `counts`
+        (to move, to delete, need attention, moved, deleted, put back, left where they are; they add
+        up to the total), `appliedAt`, and for each moved file an `undo` state. Before this, each view
+        counted on its own (one from a history list cut at 200 entries), so the start page, History and
+        the plan's page gave different numbers for the same plan. Now they use the same words, the same
+        numbers and labeled times ("proposed", "applied"). Older times show as a date, not "2 weeks
+        ago", because rounding made two times three minutes apart look a week apart.
+      - History shows past plans, not single moves. Ids show only where an agent may need them.
+      - Settings have labels and groups, and the rarely used ones are folded.
+      - Undo doesn't change a plan file, so the server reads the history to count what can still be
+        put back.
+    - **Apply needs two steps.** The page shows the dry run (how many files go to each folder, what
+      is deleted and where it goes), then the user confirms. This replaces the CLI's y/N prompt. The `--yes` gate is for agents,
       and an agent doesn't use this page.
     - **Port.** Without `--port`, the server tries 4477 and uses a free port if 4477 is busy. A fixed port
       has little value, because the session token changes on each run, so an old link stops working

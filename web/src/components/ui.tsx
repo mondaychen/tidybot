@@ -1,5 +1,5 @@
 import type { Scope } from "@contract";
-import { type Accessor, type JSX, type Resource, Match, Show, Switch, createSignal } from "solid-js";
+import { type Accessor, type JSX, type Resource, Match, Show, Switch, createSignal, onCleanup } from "solid-js";
 import { useApp } from "../app-context";
 
 export const errorMessage = (err: unknown) => (err instanceof Error ? err.message : String(err));
@@ -60,14 +60,52 @@ export function Loaded<T extends object>(props: { resource: Resource<T>; childre
   );
 }
 
+/** A short message that goes away by itself: feedback after a change. */
+export function createFlash(ms = 5000): [() => string | undefined, (message: string) => void] {
+  const [message, setMessage] = createSignal<string>();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  onCleanup(() => clearTimeout(timer));
+  const show = (m: string) => {
+    clearTimeout(timer);
+    setMessage(m);
+    timer = setTimeout(() => setMessage(undefined), ms);
+  };
+  return [message, show];
+}
+
+/** A section whose body can be hidden. It keeps its open state while its content changes. */
+export function Collapsible(props: {
+  title: JSX.Element;
+  /** Shown after the title, outside the toggle. */
+  detail?: JSX.Element;
+  open?: boolean;
+  class?: string;
+  header?: JSX.Element;
+  children: JSX.Element;
+}) {
+  const [open, setOpen] = createSignal(props.open ?? true);
+  return (
+    <section class={`group ${props.class ?? ""}`}>
+      <div class="group-head">
+        {props.header}
+        <button type="button" class="link" aria-expanded={open()} onClick={() => setOpen(!open())}>
+          <span aria-hidden="true">{open() ? "▾" : "▸"}</span> {props.title}
+        </button>
+        {props.detail}
+      </div>
+      <Show when={open()}>{props.children}</Show>
+    </section>
+  );
+}
+
 /** A button that asks "Are you sure?" in place before it acts. */
-export function ConfirmButton(props: { label: string; question: string; confirmLabel?: string; disabled?: boolean; onConfirm: () => void }) {
+export function ConfirmButton(props: { label: string; question: string; confirmLabel?: string; disabled?: boolean; class?: string; onConfirm: () => void }) {
   const [asking, setAsking] = createSignal(false);
   return (
     <Show
       when={asking()}
       fallback={
-        <button type="button" disabled={props.disabled} onClick={() => setAsking(true)}>
+        <button type="button" class={props.class} disabled={props.disabled} onClick={() => setAsking(true)}>
           {props.label}
         </button>
       }
@@ -98,10 +136,10 @@ export function ScopePicker(props: { value: Scope; onChange: (scope: Scope) => v
   return (
     <Show when={app.status()?.project}>
       <label class="scope">
-        Save to{" "}
+        Changes apply to{" "}
         <select value={props.value} onChange={(e) => props.onChange(e.currentTarget.value === "project" ? "project" : "global")}>
-          <option value="project">project settings</option>
-          <option value="global">global settings</option>
+          <option value="project">this project only</option>
+          <option value="global">everywhere (global)</option>
         </select>
       </label>
     </Show>
