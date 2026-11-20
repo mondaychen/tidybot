@@ -112,6 +112,7 @@ export function SensitivePage() {
                           <Show when={!r.custom} fallback="on">
                             <input
                               type="checkbox"
+                              class="switch"
                               aria-label={`Rule ${r.id} on`}
                               checked={!r.allowed}
                               disabled={setRule.pending()}

@@ -1,7 +1,7 @@
 import type { PlanCounts, PlanState, UndoResult } from "@contract";
-import { Show, createSignal } from "solid-js";
+import { For, Show, createSignal } from "solid-js";
 import { api } from "../api";
-import { countsText, dateTime, listing, plural, when } from "../format";
+import { COUNT_WORDS, dateTime, listing, plural, when } from "../format";
 import { UndoResultView } from "./results";
 import { ConfirmButton, ErrorText, PathText, createAction } from "./ui";
 
@@ -20,7 +20,45 @@ export function PlanFacts(props: { plan: { source: string; createdAt: string; ap
           )}
         </Show>
       </div>
-      <div>{countsText(props.plan.counts)}</div>
+      <CountsBar counts={props.plan.counts} />
+    </div>
+  );
+}
+
+/** The color of each count. A change that waits for the plan to be applied has stripes. */
+const COUNT_LOOK: Record<keyof typeof COUNT_WORDS, string> = {
+  attention: "attention",
+  toMove: "move planned",
+  toDelete: "delete planned",
+  moved: "move",
+  deleted: "delete",
+  putBack: "putback",
+  left: "left",
+};
+
+/** A plan's counts as one bar, with each part in proportion, and the numbers in words under it. */
+export function CountsBar(props: { counts: PlanCounts }) {
+  const parts = () => (Object.keys(COUNT_WORDS) as (keyof typeof COUNT_WORDS)[]).filter((k) => props.counts[k] > 0);
+  return (
+    <div class="counts">
+      <Show when={parts().length}>
+        <div class="counts-bar" aria-hidden="true">
+          <For each={parts()}>
+            {(k) => <span class={`seg ${COUNT_LOOK[k]}`} style={{ "flex-grow": props.counts[k] }} title={`${props.counts[k]} ${COUNT_WORDS[k]}`} />}
+          </For>
+        </div>
+      </Show>
+      <div class="counts-legend">
+        <strong>{plural(props.counts.total, "file")}</strong>
+        <For each={parts()}>
+          {(k) => (
+            <span class="key">
+              <i class={`seg ${COUNT_LOOK[k]}`} />
+              <b>{props.counts[k]}</b> {COUNT_WORDS[k]}
+            </span>
+          )}
+        </For>
+      </div>
     </div>
   );
 }

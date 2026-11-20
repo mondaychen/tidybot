@@ -64,50 +64,134 @@ function Layout(props: RouteSectionProps) {
   const onPlans = () => props.location.pathname === "/" || props.location.pathname.startsWith("/plans/");
   return (
     <AppContext.Provider value={app}>
-      <header class="top">
-        <strong class="brand">tidybot</strong>
-        <nav>
-          <A href="/" classList={{ active: onPlans() }} end>
-            Plans
-            <Show when={openPlans()}>
-              <span class="badge" title={`${openPlans()} waiting for review`}>
-                {openPlans()}
-              </span>
-            </Show>
-          </A>
-          <A href="/history">History</A>
-          <A href="/find">Find</A>
-          <A href="/setup">Setup</A>
-        </nav>
-        <Show when={status.latest?.project}>
-          {(project) => (
-            <span class="muted project" title={project()}>
-              project: {basename(project())}
-            </span>
-          )}
-        </Show>
-      </header>
-      <Show when={(status.latest?.interrupted.length ?? 0) > 0 && props.location.pathname !== "/"}>
-        <p class="warning">
-          Some moves were cut off. Nothing can move or be undone until you check them. <a href="/">Check them</a>
-        </p>
-      </Show>
-      <main>
-        <ErrorText error={statusError()} />
-        {/* With no status at all, the pages have nothing to show but "Loading…". */}
-        <Show when={!statusError() || status.latest}>{props.children}</Show>
-      </main>
+      <div class="app">
+        <aside class="sidebar">
+          <div class="brand">
+            <Logo />
+            <span>tidybot</span>
+          </div>
+          <nav>
+            <A href="/" classList={{ active: onPlans() }} end>
+              <Icon name="plans" />
+              Plans
+              <Show when={openPlans()}>
+                <span class="badge" title={`${openPlans()} waiting for review`}>
+                  {openPlans()}
+                </span>
+              </Show>
+            </A>
+            <A href="/history">
+              <Icon name="history" />
+              History
+            </A>
+            <A href="/find">
+              <Icon name="find" />
+              Find
+            </A>
+            <A href="/setup">
+              <Icon name="setup" />
+              Setup
+            </A>
+          </nav>
+          <Show when={status.latest?.project}>
+            {(project) => (
+              <div class="muted project" title={project()}>
+                Project <b>{basename(project())}</b>
+              </div>
+            )}
+          </Show>
+        </aside>
+        <div class="content">
+          <Show when={(status.latest?.interrupted.length ?? 0) > 0 && props.location.pathname !== "/"}>
+            <p class="warning">
+              Some moves were cut off. Nothing can move or be undone until you check them.{" "}
+              <a class="button" href="/">
+                Check them
+              </a>
+            </p>
+          </Show>
+          <main>
+            <ErrorText error={statusError()} />
+            {/* With no status at all, the pages have nothing to show but "Loading…". */}
+            <Show when={!statusError() || status.latest}>{props.children}</Show>
+          </main>
+        </div>
+      </div>
     </AppContext.Provider>
+  );
+}
+
+const ICONS = {
+  plans: (
+    <>
+      <path d="M2.5 9.5 4.4 3.7a1 1 0 0 1 1-.7h5.2a1 1 0 0 1 1 .7l1.9 5.8V12a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1z" />
+      <path d="M2.5 9.5h3l.7 1.5h3.6l.7-1.5h3" />
+    </>
+  ),
+  history: (
+    <>
+      <circle cx="8" cy="8" r="5.5" />
+      <path d="M8 5v3.2l2 1.3" />
+    </>
+  ),
+  find: (
+    <>
+      <circle cx="7" cy="7" r="4.2" />
+      <path d="m10.2 10.2 3.3 3.3" />
+    </>
+  ),
+  setup: (
+    <>
+      <path d="M2.5 5h6m3 0h2m-11 6h2m3 0h6" />
+      <circle cx="10" cy="5" r="1.5" />
+      <circle cx="6" cy="11" r="1.5" />
+    </>
+  ),
+};
+
+/** A menu icon, drawn as a line in the color of the text around it. */
+function Icon(props: { name: keyof typeof ICONS }) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      {ICONS[props.name]}
+    </svg>
+  );
+}
+
+function Logo() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <defs>
+        <linearGradient id="logo-fill" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#4aa3ff" />
+          <stop offset="1" stop-color="#0a6cf0" />
+        </linearGradient>
+      </defs>
+      <rect width="24" height="24" fill="url(#logo-fill)" />
+      <path d="M12 8.5V6" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" />
+      <circle cx="12" cy="5.4" r="1.3" fill="#fff" />
+      <rect x="3.4" y="11.6" width="2" height="3.8" rx="1" fill="#fff" />
+      <rect x="18.6" y="11.6" width="2" height="3.8" rx="1" fill="#fff" />
+      <rect x="6" y="8.5" width="12" height="10" rx="3.2" fill="#fff" />
+      <circle cx="9.7" cy="12.8" r="1.35" fill="#0a6cf0" />
+      <circle cx="14.3" cy="12.8" r="1.35" fill="#0a6cf0" />
+      <path d="M10.2 15.9h3.6" fill="none" stroke="#0a6cf0" stroke-width="1.2" stroke-linecap="round" />
+    </svg>
   );
 }
 
 function NoToken() {
   return (
-    <main>
-      <h1>tidybot</h1>
-      <p>
-        This page needs the session key. Open the link that <code>tidybot ui</code> printed in your terminal.
-      </p>
+    <main class="alone">
+      <section class="box">
+        <h1 class="brand">
+          <Logo />
+          <span>tidybot</span>
+        </h1>
+        <p>
+          This page needs the session key. Open the link that <code>tidybot ui</code> printed in your terminal.
+        </p>
+      </section>
     </main>
   );
 }
@@ -134,7 +218,10 @@ render(
           path="*"
           component={() => (
             <p>
-              No such page. <a href="/">Back to plans</a>
+              No such page.{" "}
+              <a class="button" href="/">
+                Back to plans
+              </a>
             </p>
           )}
         />

@@ -41,11 +41,18 @@ export function HistoryPage() {
                 <Show when={past().find((p) => p.id === id)}>
                   {(p) => (
                     <section class="box">
-                      <h2>
-                        <a href={`/plans/${id}`}>Tidy {basename(p().source)}</a> <span class="tag">{planStatus(p())}</span>
-                      </h2>
+                      <div class="head">
+                        <h2>
+                          Tidy {basename(p().source)} <span class="tag">{planStatus(p())}</span>
+                        </h2>
+                        <a class="button" href={`/plans/${id}`}>
+                          Details
+                        </a>
+                      </div>
                       <PlanFacts plan={p()} />
-                      <UndoPlan planId={id} counts={p().counts} onUndone={app.refreshStatus} />
+                      <div class="row">
+                        <UndoPlan planId={id} counts={p().counts} onUndone={app.refreshStatus} />
+                      </div>
                     </section>
                   )}
                 </Show>
