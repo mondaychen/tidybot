@@ -156,6 +156,7 @@ function SettingRow(props: { setting: Setting; value: string; pending: boolean; 
         <input
           id={id}
           type="checkbox"
+          class="switch"
           checked={props.value === "true"}
           disabled={props.pending}
           onChange={async (ev) => {

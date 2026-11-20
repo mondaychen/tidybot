@@ -1,5 +1,6 @@
 import { For, Show, createResource, createSignal, onCleanup } from "solid-js";
 import { api } from "../api";
+import { FileIcon } from "../components/file-icon";
 import { Loaded, PathText } from "../components/ui";
 import { basename } from "../format";
 
@@ -66,7 +67,10 @@ export function FindPage() {
                 <For each={list()}>
                   {(h) => (
                     <li class="box">
-                      <strong>{h.paths[0] ? basename(h.paths[0]) : h.name}</strong>
+                      <div class="hit-title">
+                        <FileIcon name={h.paths[0] ? basename(h.paths[0]) : h.name} />
+                        <strong>{h.paths[0] ? basename(h.paths[0]) : h.name}</strong>
+                      </div>
                       <Show when={h.paths.length} fallback={<div class="muted">Location unknown (moved or deleted)</div>}>
                         <For each={h.paths}>{(p) => <PathRow path={p} />}</For>
                       </Show>

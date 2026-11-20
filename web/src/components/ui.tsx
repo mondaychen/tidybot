@@ -89,7 +89,10 @@ export function Collapsible(props: {
       <div class="group-head">
         {props.header}
         <button type="button" class="link" aria-expanded={open()} onClick={() => setOpen(!open())}>
-          <span aria-hidden="true">{open() ? "▾" : "▸"}</span> {props.title}
+          <svg class="chevron" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="m3.5 1.5 3.5 3.5-3.5 3.5" />
+          </svg>
+          <span>{props.title}</span>
         </button>
         {props.detail}
       </div>

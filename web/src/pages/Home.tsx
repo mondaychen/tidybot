@@ -19,9 +19,11 @@ export function HomePage() {
             <section class="box attention">
               <h2>Set up places first</h2>
               <p>
-                Places are the folders your files go to. Ask your agent to set up tidybot (<code>tidybot guide onboard</code>), or{" "}
-                <a href="/setup/places">add places yourself</a>.
+                Places are the folders your files go to. Ask your agent to set up tidybot (<code>tidybot guide onboard</code>), or add places yourself.
               </p>
+              <a class="button" href="/setup/places">
+                Add places
+              </a>
             </section>
           </Show>
 
@@ -41,7 +43,11 @@ export function HomePage() {
                   <a class="card" href={`/plans/${p.id}`}>
                     <strong>Tidy {basename(p.source)}</strong>
                     <PlanFacts plan={p} />
-                    <span class="button primary">Review</span>
+                    <span class="go">
+                      <svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="m3.5 1.5 3.5 3.5-3.5 3.5" />
+                      </svg>
+                    </span>
                   </a>
                 )}
               </For>
@@ -72,16 +78,28 @@ function LastApplied() {
   return (
     <Show when={last()}>
       {(p) => (
+        <>
+        <div class="head section-head">
+          <h2>Last applied</h2>
+          <a class="button quiet" href="/history">
+            Show past plans
+          </a>
+        </div>
         <section class="box">
-          <h2>
-            Last applied: <a href={`/plans/${p().id}`}>Tidy {basename(p().source)}</a> <span class="tag">{planStatus(p())}</span>
-          </h2>
+          <div class="head">
+            <h2>
+              Tidy {basename(p().source)} <span class="tag">{planStatus(p())}</span>
+            </h2>
+            <a class="button" href={`/plans/${p().id}`}>
+              Details
+            </a>
+          </div>
           <PlanFacts plan={p()} />
           <div class="row">
             <UndoPlan planId={p().id} counts={p().counts} onUndone={app.refreshStatus} />
           </div>
-          <a href="/history">All past plans</a>
         </section>
+        </>
       )}
     </Show>
   );

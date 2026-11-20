@@ -5,6 +5,7 @@ import { createStore, reconcile } from "solid-js/store";
 import { api } from "../api";
 import { useApp } from "../app-context";
 import { type Choice, DestinationSelect } from "../components/destination";
+import { FileIcon } from "../components/file-icon";
 import { PlanFacts, UndoPlan } from "../components/plan-facts";
 import { ApplyResultView } from "../components/results";
 import { Collapsible, ConfirmButton, ErrorText, Loaded, PathText, createAction, createFlash } from "../components/ui";
@@ -122,9 +123,12 @@ function PlanView(props: { plan: Accessor<Plan>; places: PlaceInfo[]; onChange: 
 
   return (
     <div class="plan">
-      <p class="crumbs">
-        <a href="/">Plans</a> /
-      </p>
+      <a class="back button quiet" href="/">
+        <svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M6.5 1.5 3 5l3.5 3.5" />
+        </svg>
+        Plans
+      </a>
       <h1>
         Tidy {basename(plan().source)} <span class={`tag ${plan().state}`}>{planStatus(plan())}</span>
       </h1>
@@ -151,6 +155,10 @@ function PlanView(props: { plan: Accessor<Plan>; places: PlaceInfo[]; onChange: 
       </Show>
       <Show when={plan().state === "open"}>
         <p class="muted">Check where each file goes. Change it with the menu on its row, or select several files. Nothing moves until you apply the plan.</p>
+      </Show>
+
+      <Show when={!plan().discarded}>
+        <Destinations plan={plan()} />
       </Show>
 
       <For each={groups().map((g) => g.key)}>
@@ -345,6 +353,51 @@ function groupItems(plan: Plan, places: PlaceInfo[], tildify: (p: string) => str
   return [...groups.values()].sort((a, b) => a.rank - b.rank);
 }
 
+/** How many destinations the chart names. The others are added up in one last row. */
+const MOST_DESTINATIONS = 8;
+
+/** A bar per destination, longest first: where the files of this plan go, or went. */
+function Destinations(props: { plan: Plan }) {
+  const app = useApp();
+  const rows = createMemo(() => {
+    const counts = new Map<string, number>();
+    for (const i of props.plan.items) {
+      const moves = (i.status === "pending" && !i.delete && !needsAttention(i)) || (i.status === "moved" && i.undo !== "putBack");
+      if (!moves || !i.destination) continue;
+      const name = i.place ?? (i.destination === dirname(i.file) ? "Renamed, stays in its folder" : app.tildify(i.destination));
+      counts.set(name, (counts.get(name) ?? 0) + 1);
+    }
+    const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+    const rest = sorted.slice(MOST_DESTINATIONS);
+    const other = rest.reduce((sum, [, n]) => sum + n, 0);
+    return [
+      ...sorted.slice(0, MOST_DESTINATIONS).map(([name, n]) => ({ name, n, rest: false })),
+      ...(other ? [{ name: plural(rest.length, "other folder"), n: other, rest: true }] : []),
+    ];
+  });
+  const most = () => Math.max(...rows().map((r) => r.n));
+  return (
+    <Show when={rows().length > 1}>
+      <section class="box">
+        <h2>{props.plan.state === "open" ? "Where the files go" : "Where the files went"}</h2>
+        <ul class="bars" classList={{ "planned-bars": props.plan.state === "open" }}>
+          <For each={rows()}>
+            {(row) => (
+              <li title={`${row.name}: ${plural(row.n, "file")}`} classList={{ rest: row.rest }}>
+                <span class="bars-label">{row.name}</span>
+                <span class="bars-track">
+                  <span class="bars-fill" style={{ width: `${(row.n / most()) * 100}%` }} />
+                </span>
+                <span class="bars-value">{row.n}</span>
+              </li>
+            )}
+          </For>
+        </ul>
+      </section>
+    </Show>
+  );
+}
+
 function ItemRow(props: {
   item: PlanItem;
   source: string;
@@ -373,11 +426,14 @@ function ItemRow(props: {
         onChange={(e) => props.onSelect(e.currentTarget.checked)}
       />
       <div class="item-main">
-        <ItemName item={props.item} canRename={canRename()} busy={props.busy} onRename={props.onRename} />
-        <Show when={subfolder()}>
-          <div class="muted path">in {subfolder()}</div>
-        </Show>
-        <ItemNotes item={props.item} />
+        <FileIcon name={basename(props.item.file)} />
+        <div class="item-text">
+          <ItemName item={props.item} canRename={canRename()} busy={props.busy} onRename={props.onRename} />
+          <Show when={subfolder()}>
+            <div class="muted path">in {subfolder()}</div>
+          </Show>
+          <ItemNotes item={props.item} />
+        </div>
       </div>
       <div class="item-where">
         <Show
