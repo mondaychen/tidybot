@@ -160,8 +160,10 @@
 /*
  * As in a native app: the page does not bounce, the pointer is an arrow on all but text fields, and
  * text is a label, not a document. Only what a person may want to copy can be selected.
+ * Stop only the vertical bounce: horizontal overscroll is what the browser uses for the
+ * two-finger swipe to go back or forward.
  */
-html { overscroll-behavior: none; }
+html { overscroll-behavior-y: none; }
 body { cursor: default; -webkit-user-select: none; user-select: none; }
 a, img, svg { -webkit-user-drag: none; }
 code, .path, .error, .name strong, .hit-title strong, .hits p, input, textarea { -webkit-user-select: text; user-select: text; }
