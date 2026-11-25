@@ -167,10 +167,10 @@ importers:
   .:
     dependencies:
       '@secretlint/core':
-        specifier: ^13.0.7
+        specifier: 13.0.7
         version: 13.0.7
       '@secretlint/profiler':
-        specifier: ^13.0.7
+        specifier: 13.0.7
         version: 13.0.7
       '@secretlint/secretlint-rule-preset-recommend':
         specifier: ^13.0.7
