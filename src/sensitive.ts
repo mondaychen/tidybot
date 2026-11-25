@@ -1,6 +1,13 @@
 import path from "node:path";
 import { lintSource } from "@secretlint/core";
+import { secretLintProfiler } from "@secretlint/profiler";
 import { rules as recommended } from "@secretlint/secretlint-rule-preset-recommend";
+
+// secretlint's profiler is on by default. It adds global performance marks for each check and never
+// clears them, so a long run (`tidybot ui`, a scan of a big folder) runs out of memory.
+// package.json pins @secretlint/core and @secretlint/profiler to the same exact version. If the
+// versions differ, pnpm installs two profilers, and this line turns off the one that core doesn't use.
+secretLintProfiler.setEnabled(false);
 
 /**
  * Heuristics for files that likely hold credentials. Sensitive files get no excerpt, no cached

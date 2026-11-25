@@ -9,6 +9,11 @@
   exceptions there, and resolve interrupted moves. The page works only on this computer, with the
   link that the command prints. See "Web interface" in the README.
 
+### Fixed
+- **Memory use of the secret check.** secretlint's profiler kept a record of each check and never
+  removed it. A long run, such as `tidybot ui` or a scan of a big folder, could run out of memory.
+  tidybot now turns the profiler off.
+
 ## 0.2.0
 
 ### Added

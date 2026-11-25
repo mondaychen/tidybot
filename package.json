@@ -46,7 +46,8 @@
   "dependencies": {
     "@orpc/contract": "1.15.5",
     "@orpc/server": "1.15.5",
-    "@secretlint/core": "^13.0.7",
+    "@secretlint/core": "13.0.7",
+    "@secretlint/profiler": "13.0.7",
     "@secretlint/secretlint-rule-preset-recommend": "^13.0.7",
     "commander": "^15.0.0",
     "fflate": "^0.8.3",
