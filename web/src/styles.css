@@ -275,6 +275,7 @@ details[open] > summary { margin-bottom: 6px; }
 .facts { display: flex; flex-direction: column; gap: 2px; }
 .undo { max-width: 100%; }
 .undo:empty { display: none; }
+.row:has(> .undo:only-child:empty) { display: none; }
 
 /* A plan's counts as a bar: one part per count, 2px apart. Stripes mean "planned, not done yet". */
 .counts { display: flex; flex-direction: column; gap: 7px; margin-top: 6px; }

@@ -18,6 +18,7 @@ agent:  tidybot propose --data '{...}'          → plan with moves and renames 
 you:    tidybot plan show / plan set / skip     → review and edit
 you:    tidybot apply                           → files move, history recorded
 you:    tidybot undo --last                     → changed your mind (original names restored)
+you:    tidybot plan reopen <id>                → changed it again: a new plan with the put-back files
 anyone: tidybot find lease 2025                 → search by summary and keywords
 ```
 
@@ -100,6 +101,7 @@ pnpm link --global      # puts `tidybot` on your PATH
 | Command | What it does |
 |---|---|
 | `plan list \| show \| set \| skip \| discard` | Review and edit. `plan set <files...> [--place p \| --path d \| --delete]`, `plan set <file> --name n` (or `--keep-name`). `plan set <file> <place>` also works |
+| `plan reopen <id>` | Copies an applied or discarded plan into a new open plan, to move its files again after `undo`. Only files that are back where they were come in. The output tells where the others are |
 | `apply [plan] [--dry-run] [--yes] [--on-conflict rename]` | Runs moves, renames and deletions. Asks for confirmation |
 | `history`, `undo <ids> \| --plan \| --last`, `forget <ids>` | Move history and undo |
 | `recover [--abandon <ids>]` | Finishes or rolls back interrupted moves (also runs automatically). `--abandon` drops one it can't resolve, after you've checked its files |
@@ -125,7 +127,8 @@ human-facing tasks without commands. The page has four parts:
   also rename a file, or change many files at once. Before files move, the page shows how many go to
   each folder, and you confirm. After that, one button puts them back.
 - **History:** your past plans. Put back all the files of a plan here, or single files on the plan's
-  page.
+  page. After you put back files, "Reopen as a new plan" makes a new plan with them, for review. The
+  old plan stays as the record of what happened.
 
 Each view describes a plan with the same words and numbers, such as "332 files: 284 moved, 20
 deleted and 28 left where they are", and gives both times ("proposed", "applied"). Files that went to

@@ -125,6 +125,7 @@ redesigned the rest for a CLI that an agent drives. Open questions are collected
     never rewritten.
 
 11. **Undo doesn't reopen the plan.** Items keep status `moved` as a record, and history shows them as `undone`.
+    To move the files again, `plan reopen` makes a new plan (#33).
 
 12. **Smart rename.**
     - A proposal can carry `rename` (a filename only). tidybot sanitizes it:
@@ -517,6 +518,27 @@ redesigned the rest for a CLI that an agent drives. Open questions are collected
       command. Settings pages let the user write to global or project settings when a project is active.
     - **Not in the UI yet:** `init`, `sensitive allow` (it needs a file list from a scan), and browsing a
       folder's files before a plan exists.
+
+33. **Reopening a plan** *(requested, 2026-11-24)*. `plan reopen <id>` copies an applied or discarded plan
+    into a new open plan with `reopenedFrom: <id>`.
+    - **A new plan, not the old one set back to `pending`.** The old plan stays the record of what was
+      applied (#11), and each history entry still points to the plan that made it.
+    - **The file's location decides, not only the history.** An item comes in only when its file is at
+      its original path now. This also covers a file that the user restored from the system Trash by
+      hand. If the newest history entry for that path is not an undo, the item gets a warning to check
+      that it is the same file: a new download can have the same name.
+    - **Partial, not all or nothing.** Files in the system Trash would block a whole plan almost every
+      time. The other files are left out, each with where it is: `stillMoved` (with the undo id, or none
+      when the history entry was dropped), `systemTrash` or `missing`. If no file can come in, it is an
+      error (`nothing_to_reopen`), and no plan is made.
+    - **Checked again, as `propose` checks.** Places can change after the first apply: a place's current
+      folder is used, a removed place makes the item `invalid`, and name conflicts are found again.
+      Deleting must still be on. Skipped and invalid items keep their status and note. The old plan's
+      `context` is copied, because the decisions were made with those settings.
+    - **One open copy at a time.** A second reopen fails (`already_reopened`) while a copy is open, so
+      two open plans don't hold the same files. Discard the copy to reopen again.
+    - Undo and reopen stay two steps. In the web interface, "Reopen as a new plan" shows on a past plan
+      with files put back, and on a discarded plan.
 
 ## 🟡 Open questions
 

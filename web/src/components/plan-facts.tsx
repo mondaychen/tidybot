@@ -1,8 +1,9 @@
-import type { PlanCounts, PlanState, UndoResult } from "@contract";
+import type { LeftOut, Plan, PlanCounts, PlanState, UndoResult } from "@contract";
 import { For, Show, createSignal } from "solid-js";
 import { api } from "../api";
-import { COUNT_WORDS, dateTime, listing, plural, when } from "../format";
+import { COUNT_WORDS, basename, countsText, dateTime, listing, plural, when } from "../format";
 import { UndoResultView } from "./results";
+import { useApp } from "../app-context";
 import { ConfirmButton, ErrorText, PathText, createAction } from "./ui";
 
 /** What a plan is about, worded the same in each view: its folder, its times and its counts. */
@@ -99,6 +100,89 @@ export function UndoPlan(props: { planId: string; counts: PlanCounts; onUndone: 
       </Show>
       <ErrorText error={undo.error()} />
       <Show when={result()}>{(r) => <UndoResultView result={r()} onForgotten={props.onUndone} />}</Show>
+    </div>
+  );
+}
+
+/** Why a reopened plan left a file out, and what the user can do. */
+function leftOutText(l: LeftOut, tildify: (p: string) => string): string {
+  if (l.reason === "systemTrash") return `it is in the system Trash. Restore it to ${tildify(l.file)}, then reopen the plan again.`;
+  if (l.reason === "missing") return "it is not where it was, and tidybot can't find it.";
+  const where = `it is still in ${tildify(l.at ?? "")}.`;
+  return l.undoId ? `${where} Put it back first.` : `${where} Undo can't put it back: move it back yourself.`;
+}
+
+/**
+ * Copy a past plan into a new plan, to move its files again after they were put back. Shown for an
+ * applied plan with files put back, and for a discarded plan. When an open copy exists, links to it.
+ */
+export function ReopenPlan(props: {
+  plan: { id: string; state: PlanState; counts: PlanCounts; reopenedAs?: string };
+  onReopened: () => void;
+}) {
+  const app = useApp();
+  const [result, setResult] = createSignal<{ plan: Plan; left: LeftOut[] }>();
+  const reopen = createAction(
+    () => api.plans.reopen({ planId: props.plan.id }),
+    (r) => {
+      setResult(r);
+      props.onReopened();
+    },
+  );
+  const offered = () => props.plan.state !== "open" && (props.plan.counts.putBack > 0 || props.plan.state === "discarded");
+  return (
+    <div class="undo">
+      <Show
+        when={result()}
+        fallback={
+          <Show
+            when={props.plan.reopenedAs}
+            fallback={
+              <Show when={offered()}>
+                <button type="button" disabled={reopen.pending()} onClick={() => void reopen.run()} title="Make a new plan with the files that are back where they were">
+                  Reopen as a new plan
+                </button>
+              </Show>
+            }
+          >
+            {(id) => (
+              <p class="muted">
+                This plan was reopened as a new plan.{" "}
+                <a class="button" href={`/plans/${id()}`}>
+                  Review the new plan
+                </a>
+              </p>
+            )}
+          </Show>
+        }
+      >
+        {(r) => (
+          <div class="result">
+            <p>
+              New plan: {countsText(r().plan.counts)}.{" "}
+              <a class="button" href={`/plans/${r().plan.id}`}>
+                Review the new plan
+              </a>
+            </p>
+            <Show when={r().left.length}>
+              <p>Left out {plural(r().left.length, "file")}:</p>
+              <ul>
+                <For each={r().left}>
+                  {(l) => (
+                    <li>
+                      <code class="path" title={l.file}>
+                        {basename(l.file)}
+                      </code>
+                      : {leftOutText(l, app.tildify)}
+                    </li>
+                  )}
+                </For>
+              </ul>
+            </Show>
+          </div>
+        )}
+      </Show>
+      <ErrorText error={reopen.error()} />
     </div>
   );
 }

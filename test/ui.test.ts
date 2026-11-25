@@ -200,6 +200,35 @@ describe("ui methods", () => {
     expect((await api.status()).undoableMoves).toBe(0);
   });
 
+  it("reopens an undone plan as a new plan, and links the two", async () => {
+    write(path.join(dl, "bill.txt"), "electric bill");
+    write(path.join(dl, "notes.md"), "meeting notes");
+    addPlace({ name: "Bills", path: path.join(root, "bills"), rule: "bills" });
+    const proposed = await propose(
+      [
+        { file: "bill.txt", place: "Bills" },
+        { file: "notes.md", place: "Bills" },
+      ],
+      { source: dl },
+    );
+    const { plan: applied } = await api.plans.apply({ planId: proposed.id, onConflict: "fail" });
+    await api.history.undo({ ids: [applied.items[0]?.operationId ?? ""] });
+
+    const { plan, left } = await api.plans.reopen({ planId: proposed.id });
+    expect(plan).toMatchObject({ state: "open", reopenedFrom: proposed.id, counts: { total: 1, toMove: 1 } });
+    expect(left).toEqual([{ file: path.join(dl, "notes.md"), reason: "stillMoved", at: path.join(root, "bills", "notes.md"), undoId: applied.items[1]?.operationId }]);
+
+    expect((await api.plans.get({ id: proposed.id })).reopenedAs).toBe(plan.id);
+    const listed = await api.plans.list({ all: true });
+    expect(listed.find((p) => p.id === proposed.id)?.reopenedAs).toBe(plan.id);
+    expect(listed.find((p) => p.id === plan.id)?.reopenedFrom).toBe(proposed.id);
+    expect(await codeOf(api.plans.reopen({ planId: proposed.id }))).toBe("already_reopened");
+
+    // Discarded, the new plan no longer counts as the old plan's copy.
+    await api.plans.discard({ planId: plan.id });
+    expect((await api.plans.get({ id: proposed.id })).reopenedAs).toBeUndefined();
+  });
+
   it("puts back a plan's moved files, and leaves out the files in the system Trash", async () => {
     onPlatform("darwin");
     systemTrash.dir = path.join(root, "system-trash");

@@ -10,8 +10,9 @@ import { resolvePath } from "./paths.js";
 import { isImage } from "./scan.js";
 import { sensitiveByName } from "./sensitive.js";
 import { type Config, loadConfig } from "./store/config.js";
+import { type MoveEntry, loadMoves } from "./store/history.js";
 import { findPlace, loadPlaces, type Place } from "./store/places.js";
-import { type Plan, type PlanItem, newPlanId, planState, savePlan, targetPath } from "./store/plans.js";
+import { type Plan, type PlanItem, listPlans, newPlanId, planState, savePlan, targetPath } from "./store/plans.js";
 import { FileIndex, loadSummaries } from "./store/summaries.js";
 import { type TrashStatus, trashStatus } from "./trash.js";
 
@@ -278,4 +279,128 @@ export function skip(plan: Plan, file: string): PlanItem {
   refreshWarnings(plan);
   savePlan(plan);
   return item;
+}
+
+/**
+ * A file of a reopened plan that is not back where it was, so the new plan leaves it out.
+ * `stillMoved`: it is at `at`. `undoId` is the history entry that puts it back; without one, undo
+ * can't reach it (the entry was dropped). `systemTrash`: it is in the system Trash. `missing`: not found.
+ */
+export interface LeftOut {
+  file: string;
+  reason: "stillMoved" | "systemTrash" | "missing";
+  at?: string;
+  undoId?: string;
+}
+
+export const SAME_FILE_WARNING = "tidybot didn't put this file back: make sure it is the same file before you apply";
+
+const isFile = (p: string) => fs.statSync(p, { throwIfNoEntry: false })?.isFile() ?? false;
+
+/** The open plan that `reopenPlan` made from `planId`, if there is one. */
+export function openReopenOf(planId: string, plans: Plan[] = listPlans()): Plan | undefined {
+  return plans.find((p) => p.reopenedFrom === planId && planState(p) === "open");
+}
+
+/**
+ * Copy an applied or discarded plan into a new open plan, so its files can be moved again after an
+ * undo. The old plan doesn't change: it stays the record of what was applied (DECISIONS.md #11).
+ * Only files that are at their original path now come into the new plan. The others are returned
+ * as `left`, with where they are. Destinations are resolved again from the current places.
+ */
+export function reopenPlan(old: Plan): { plan: Plan; left: LeftOut[] } {
+  if (planState(old) === "open") throw new TidyError(`Plan ${old.id} is still open. Change it with \`tidybot plan set\`, or apply it.`, "invalid_input");
+  const existing = openReopenOf(old.id);
+  if (existing) throw new TidyError(`Plan ${old.id} was already reopened as ${existing.id}, which is still open. Use that plan, or discard it first.`, "already_reopened");
+
+  const places = loadPlaces();
+  const trash = trashStatus(loadConfig());
+  const moves = loadMoves();
+  // The newest move of a path, by any plan: it says where the file went last.
+  const lastMove = (file: string): MoveEntry | undefined => moves.findLast((m) => m.from === file);
+
+  const items: PlanItem[] = [];
+  const left: LeftOut[] = [];
+  for (const item of old.items) {
+    const applied = item.status === "moved" || item.status === "trashed";
+    if (!isFile(item.file)) {
+      left.push(whereIs(item, applied, lastMove(item.file)));
+      continue;
+    }
+    const next: PlanItem = {
+      file: item.file,
+      place: item.place,
+      destination: item.destination,
+      ...(item.delete ? { delete: true } : {}),
+      ...(item.newName ? { newName: item.newName } : {}),
+      ...(item.reason !== undefined ? { reason: item.reason } : {}),
+      ...(item.confidence !== undefined ? { confidence: item.confidence } : {}),
+      ...(item.summarySkipped ? { summarySkipped: item.summarySkipped } : {}),
+      status: "pending",
+    };
+    const warnings = (item.warnings ?? []).filter((w) => !w.startsWith("conflict:"));
+    if (warnings.length) next.warnings = warnings;
+    // Decisions that didn't move the file stay as they were. The user can change them in the new plan.
+    if (item.status === "skipped" || item.status === "invalid") {
+      items.push({ ...next, status: item.status, note: item.note });
+      continue;
+    }
+    if (item.note === "edited by user") next.note = item.note;
+    // A file that tidybot put back is the same file. Any other file at that path may not be.
+    if (applied && lastMove(item.file)?.state !== "undone") next.warnings = [...(next.warnings ?? []), SAME_FILE_WARNING];
+    items.push(resolveAgain(next, places, trash));
+  }
+
+  if (!items.some((i) => i.status === "pending" || i.status === "invalid")) {
+    throw new TidyError(`Nothing to reopen in plan ${old.id}: ${describeLeftOut(left, old.id)}.`, "nothing_to_reopen");
+  }
+  const plan: Plan = {
+    id: newPlanId(),
+    createdAt: new Date().toISOString(),
+    source: old.source,
+    reopenedFrom: old.id,
+    ...(old.context ? { context: old.context } : {}),
+    items,
+  };
+  refreshWarnings(plan);
+  savePlan(plan);
+  return { plan, left };
+}
+
+/** Point a reopened item at its place's current folder, and check that it can still be applied. */
+function resolveAgain(item: PlanItem, places: Place[], trash: TrashStatus): PlanItem {
+  if (item.delete) return trash.enabled ? item : { ...item, status: "invalid", note: trash.reason };
+  if (item.place) {
+    const place = findPlace(places, item.place);
+    if (!place) return { ...item, status: "invalid", note: `place "${item.place}" no longer exists` };
+    item.place = place.name;
+    item.destination = resolvePath(place.path);
+  }
+  if (!item.destination) return { ...item, status: "invalid", note: "no destination" };
+  if (targetPath(item) === item.file) return { ...item, status: "skipped", note: "already in place" };
+  return item;
+}
+
+function whereIs(item: PlanItem, applied: boolean, move: MoveEntry | undefined): LeftOut {
+  const { file } = item;
+  if (move?.to === null && move.state !== "undone") return { file, reason: "systemTrash" };
+  if (move?.to && isFile(move.to)) {
+    if (move.state === "active") return { file, reason: "stillMoved", at: move.to, undoId: move.id };
+    if (move.state === "forgotten") return { file, reason: "stillMoved", at: move.to };
+  }
+  // The history entry was dropped (historyMaxMoves): look where the plan sent the file.
+  const target = applied && !item.delete ? targetPath(item) : null;
+  if (!move && target && isFile(target)) return { file, reason: "stillMoved", at: target };
+  return { file, reason: "missing" };
+}
+
+/** "2 still moved (put them back first: tidybot undo --plan p1) and 1 not found" */
+export function describeLeftOut(left: LeftOut[], planId: string): string {
+  const n = (reason: LeftOut["reason"]) => left.filter((l) => l.reason === reason).length;
+  const parts = [
+    n("stillMoved") ? `${n("stillMoved")} still moved (put them back first: tidybot undo --plan ${planId})` : "",
+    n("systemTrash") ? `${n("systemTrash")} in the system Trash (restore them first)` : "",
+    n("missing") ? `${n("missing")} not found` : "",
+  ].filter(Boolean);
+  return parts.length ? parts.join(", ") : "the plan has no files to move or delete";
 }

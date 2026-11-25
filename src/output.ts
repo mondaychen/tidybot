@@ -50,7 +50,8 @@ export function renderPlan(plan: Plan): string {
   const summary = Object.entries(counts)
     .map(([k, v]) => `${v} ${k}`)
     .join(", ");
-  const lines = [`Plan ${plan.id} [${planState(plan)}]  source: ${contractHome(plan.source)}  (${summary})`, ""];
+  const from = plan.reopenedFrom ? `  reopened from ${plan.reopenedFrom}` : "";
+  const lines = [`Plan ${plan.id} [${planState(plan)}]  source: ${contractHome(plan.source)}  (${summary})${from}`, ""];
   for (const i of plan.items) {
     const rel = path.relative(plan.source, i.file);
     const inPlace = i.destination === path.dirname(i.file) && i.place === null;
