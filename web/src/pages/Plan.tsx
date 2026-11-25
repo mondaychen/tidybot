@@ -6,7 +6,7 @@ import { api } from "../api";
 import { useApp } from "../app-context";
 import { type Choice, DestinationSelect } from "../components/destination";
 import { FileIcon } from "../components/file-icon";
-import { PlanFacts, UndoPlan } from "../components/plan-facts";
+import { PlanFacts, ReopenPlan, UndoPlan } from "../components/plan-facts";
 import { ApplyResultView } from "../components/results";
 import { Collapsible, ConfirmButton, ErrorText, Loaded, PathText, createAction, createFlash } from "../components/ui";
 import { COUNT_WORDS, basename, describeTrash, dirname, isDone, isUnsure, listing, needsAttention, planStatus, plural, relative } from "../format";
@@ -135,7 +135,24 @@ function PlanView(props: { plan: Accessor<Plan>; places: PlaceInfo[]; onChange: 
       <PlanFacts plan={plan()} />
       <p class="muted small">
         Plan id <code>{plan().id}</code>
+        <Show when={plan().reopenedFrom}>
+          {(from) => (
+            <>
+              {" "}
+              · reopened from plan <code>{from()}</code>
+            </>
+          )}
+        </Show>
       </p>
+      <Show when={plan().reopenedFrom}>
+        {(from) => (
+          <div class="row">
+            <a class="button" href={`/plans/${from()}`}>
+              Open the old plan
+            </a>
+          </div>
+        )}
+      </Show>
 
       <Show when={applied()}>
         {(r) => (
@@ -152,6 +169,11 @@ function PlanView(props: { plan: Accessor<Plan>; places: PlaceInfo[]; onChange: 
       </Show>
       <Show when={plan().discarded}>
         <p class="box">This plan was discarded. Nothing in it moves.</p>
+      </Show>
+      <Show when={plan().state !== "open"}>
+        <div class="row">
+          <ReopenPlan plan={plan()} onReopened={props.onReload} />
+        </div>
       </Show>
       <Show when={plan().state === "open"}>
         <p class="muted">Check where each file goes. Change it with the menu on its row, or select several files. Nothing moves until you apply the plan.</p>

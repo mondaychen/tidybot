@@ -45,6 +45,8 @@ export interface Plan {
   createdAt: string;
   source: string;
   discarded?: boolean;
+  /** The applied or discarded plan that `plan reopen` copied this plan from. */
+  reopenedFrom?: string;
   context?: PlanContext;
   items: PlanItem[];
 }

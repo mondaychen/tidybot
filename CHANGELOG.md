@@ -8,6 +8,12 @@
   each row changes where a file goes. You can also edit places, rules, settings and sensitive-file
   exceptions there, and resolve interrupted moves. The page works only on this computer, with the
   link that the command prints. See "Web interface" in the README.
+- **Reopen a plan.** `tidybot plan reopen <id>` copies an applied or discarded plan into a new open
+  plan, so you can move its files again after `tidybot undo`. The old plan doesn't change. Only files
+  that are back at their original path come into the new plan. For each other file, the output tells
+  where it is: still moved (with the `undo` id that puts it back), in the system Trash, or not found.
+  Destinations come from your places as they are now. In the web interface, History and the plan's
+  page have a "Reopen as a new plan" button.
 
 ### Fixed
 - **Memory use of the secret check.** secretlint's profiler kept a record of each check and never

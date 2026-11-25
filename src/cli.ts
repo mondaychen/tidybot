@@ -8,7 +8,7 @@ import { GUIDE_TOPICS, readGuide, type GuideTopic } from "./guide.js";
 import { type ConflictPolicy, applyPlan, compactHistory, forgetMove, selectMoves, undoMoves } from "./mover.js";
 import { emit, fail, isJsonMode, renderMoves, renderPlan, setJsonMode, warn } from "./output.js";
 import { PROJECT_DIRNAME, contractHome, projectDir, resolvePath, setScopeOverride, tidybotHome } from "./paths.js";
-import { findItem, propose, retargetAll, skip } from "./planner.js";
+import { describeLeftOut, findItem, propose, reopenPlan, retargetAll, skip } from "./planner.js";
 import { compactEntry, inspect, parseAge, scan } from "./scan.js";
 import {
   SCALAR_KEYS,
@@ -610,6 +610,32 @@ plan
     p.discarded = true;
     savePlan(p);
     emit({ ok: true, planId: p.id }, () => `Discarded plan ${p.id}.`);
+  });
+
+plan
+  .command("reopen")
+  .description("copy an applied or discarded plan into a new open plan, with the files that are back where they were (put them back with `tidybot undo` first)")
+  .argument("<planId>")
+  .action((id: string) => {
+    const old = loadPlan(id);
+    const { plan: p, left } = reopenPlan(old);
+    const rel = (file: string) => path.relative(p.source, file);
+    const why = (l: (typeof left)[number]) =>
+      l.reason === "systemTrash"
+        ? `in the system Trash. Restore it to ${contractHome(l.file)}, then reopen ${old.id} again`
+        : l.reason === "missing"
+          ? "not found"
+          : `still in ${contractHome(l.at ?? "")}. ${l.undoId ? `Put it back first: tidybot undo ${l.undoId}` : "Undo can't reach it: move it back yourself"}`;
+    emit({ ok: true, planId: p.id, reopenedFrom: old.id, plan: p, left }, () =>
+      [
+        renderPlan(p),
+        left.length ? `\nLeft out ${left.length} file(s): ${describeLeftOut(left, old.id)}.` : "",
+        ...left.map((l) => `  ✗ ${rel(l.file)}: ${why(l)}`),
+        `\nReview, then run: tidybot apply ${p.id}`,
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    );
   });
 
 // ---------------------------------------------------------------- moving

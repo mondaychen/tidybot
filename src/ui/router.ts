@@ -6,7 +6,7 @@ import { implement } from "@orpc/server";
 import { TidyError } from "../errors.js";
 import { applyPlan, compactHistory, forgetMove, selectMoves, undoMoves } from "../mover.js";
 import { projectDir, tidybotHome } from "../paths.js";
-import { retargetAll, skip } from "../planner.js";
+import { openReopenOf, reopenPlan, retargetAll, skip } from "../planner.js";
 import { RULES } from "../sensitive.js";
 import { loadAllowances, removeAllowance } from "../store/allowlist.js";
 import {
@@ -94,16 +94,16 @@ function toPlan(p: StoredPlan, moves: Moves = movesById()): Plan {
   return { ...p, items, state: planState(p), counts: countItems(items), appliedAt: appliedAt(p.items, moves) };
 }
 
-function toSummary(p: StoredPlan, moves: Moves): PlanSummary {
-  const { id, state, createdAt, appliedAt, source, counts } = toPlan(p, moves);
-  return { id, state, createdAt, appliedAt, source, counts };
+function toSummary(p: StoredPlan, moves: Moves, plans: StoredPlan[]): PlanSummary {
+  const { id, state, createdAt, appliedAt, source, counts, reopenedFrom } = toPlan(p, moves);
+  const reopenedAs = openReopenOf(id, plans)?.id;
+  return { id, state, createdAt, appliedAt, source, counts, ...(reopenedFrom ? { reopenedFrom } : {}), ...(reopenedAs ? { reopenedAs } : {}) };
 }
 
 const summaries = (filter: (p: StoredPlan) => boolean): PlanSummary[] => {
   const moves = movesById();
-  return listPlans()
-    .filter(filter)
-    .map((p) => toSummary(p, moves));
+  const plans = listPlans();
+  return plans.filter(filter).map((p) => toSummary(p, moves, plans));
 };
 
 /** Changes when anything that the preview shows changes: the stored plan, and where deleted files
@@ -145,7 +145,11 @@ export const router = api.router({
 
   plans: {
     list: api.plans.list.handler(({ input }) => summaries((p) => input.all || planState(p) === "open")),
-    get: api.plans.get.handler(({ input }) => toPlan(loadPlan(input.id))),
+    get: api.plans.get.handler(({ input }) => {
+      const plan = toPlan(loadPlan(input.id));
+      const reopenedAs = plan.state === "open" ? undefined : openReopenOf(plan.id)?.id;
+      return reopenedAs ? { ...plan, reopenedAs } : plan;
+    }),
     retarget: api.plans.retarget.handler(({ input }) => {
       const plan = loadPlan(input.planId);
       retargetAll(plan, input.files, input.target);
@@ -161,6 +165,10 @@ export const router = api.router({
       plan.discarded = true;
       savePlan(plan);
       return toPlan(plan);
+    }),
+    reopen: api.plans.reopen.handler(({ input }) => {
+      const { plan, left } = reopenPlan(loadPlan(input.planId));
+      return { plan: toPlan(plan), left };
     }),
     preview: api.plans.preview.handler(async ({ input }) => {
       const preview = await applyPlan(loadPlan(input.planId), { dryRun: true });

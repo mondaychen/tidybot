@@ -40,6 +40,8 @@ I/O and caching, and the user reviews before anything moves. Output is plain tex
      it, but don't start it yourself unless they ask: it keeps running until they stop it.
 4. **Do not run `tidybot apply` until the user approves the plan.** When they do, run
    `tidybot apply --yes`. `tidybot undo --last` reverts the batch, original names included.
+   To move the files of an undone plan again, run `tidybot plan reopen <id>`: it makes a new plan
+   for review with the files that are back. Don't propose them again from scratch.
    If tidybot reports an interrupted move it can't recover safely, show the user both paths. Run
    `tidybot recover --abandon <id>` only once they confirm the files are where they want them.
 5. **Duplicates and sensitive files:** deleted files always go to the trash (system Trash, or the user's

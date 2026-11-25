@@ -2,7 +2,7 @@ import type { PlanSummary } from "@contract";
 import { For, Show, createMemo, createResource, createSignal } from "solid-js";
 import { api } from "../api";
 import { useApp } from "../app-context";
-import { PlanFacts, UndoPlan } from "../components/plan-facts";
+import { PlanFacts, ReopenPlan, UndoPlan } from "../components/plan-facts";
 import { Loaded } from "../components/ui";
 import { basename, planStatus } from "../format";
 
@@ -52,6 +52,9 @@ export function HistoryPage() {
                       <PlanFacts plan={p()} />
                       <div class="row">
                         <UndoPlan planId={id} counts={p().counts} onUndone={app.refreshStatus} />
+                      </div>
+                      <div class="row">
+                        <ReopenPlan plan={p()} onReopened={app.refreshStatus} />
                       </div>
                     </section>
                   )}

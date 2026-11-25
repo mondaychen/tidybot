@@ -89,6 +89,10 @@ export interface Plan {
   createdAt: string;
   source: string;
   discarded?: boolean;
+  /** The plan that this plan was reopened from. */
+  reopenedFrom?: string;
+  /** An open plan that was reopened from this one, if there is one. Set by `plans.get` and `plans.list`. */
+  reopenedAs?: string;
   context?: PlanContext;
   items: PlanItem[];
   state: PlanState;
@@ -100,10 +104,24 @@ export interface Plan {
 export interface PlanSummary {
   id: string;
   state: PlanState;
+  reopenedFrom?: string;
+  reopenedAs?: string;
   createdAt: string;
   appliedAt: string | null;
   source: string;
   counts: PlanCounts;
+}
+
+/**
+ * A file that a reopened plan leaves out, because it isn't back where it was. `stillMoved`: it is
+ * at `at`, and the history entry `undoId` puts it back (no `undoId`: undo can't reach it).
+ * `systemTrash`: it is in the system Trash. `missing`: not found.
+ */
+export interface LeftOut {
+  file: string;
+  reason: "stillMoved" | "systemTrash" | "missing";
+  at?: string;
+  undoId?: string;
 }
 
 export interface Move {
@@ -275,6 +293,7 @@ export const contract = {
     retarget: oc.input(z.object({ planId, files, target: PlanTargetSchema })).output(type<Plan>()),
     skip: oc.input(z.object({ planId, files })).output(type<Plan>()),
     discard: oc.input(z.object({ planId })).output(type<Plan>()),
+    reopen: oc.input(z.object({ planId })).output(type<{ plan: Plan; left: LeftOut[] }>()),
     preview: oc.input(z.object({ planId })).output(type<ApplyPreview>()),
     apply: oc.input(z.object({ planId, onConflict: z.enum(["fail", "rename"]), revision: z.string().optional() })).output(type<{ result: ApplyResult; plan: Plan }>()),
   },
