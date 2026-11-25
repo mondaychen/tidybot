@@ -212,7 +212,7 @@ time { white-space: nowrap; }
 }
 .brand { display: flex; align-items: center; gap: 9px; padding: 0 8px 4px; font-size: 15px; font-weight: 650; letter-spacing: -0.015em; }
 .brand svg { width: 24px; height: 24px; border-radius: 7px; box-shadow: 0 1px 2px var(--lift), 0 4px 10px -4px var(--accent); }
-.sidebar nav { display: flex; flex-direction: column; gap: 2px; }
+.sidebar nav { display: flex; flex-direction: column; gap: 4px; }
 .sidebar nav a { display: flex; align-items: center; gap: 9px; padding: 6px 8px; border-radius: 8px; color: var(--ink); font-weight: 500; text-decoration: none; transition: background-color 120ms ease-out; }
 .sidebar nav a svg { width: 16px; height: 16px; flex: none; color: var(--accent-ink); }
 .sidebar nav a:hover { background: var(--hover); }
@@ -230,7 +230,7 @@ main.alone { max-width: 460px; padding-top: 18vh; }
 .back svg { width: 10px; height: 10px; }
 
 /* Tabs: the segmented control of Setup. */
-.tabs { display: inline-flex; flex-wrap: wrap; gap: 2px; max-width: 100%; margin: 10px 0 20px; padding: 2px; border-radius: 10px; background: var(--well); box-shadow: inset 0 1px 2px var(--well-shade), inset 0 0 0 1px var(--line); }
+.tabs { display: inline-flex; flex-wrap: wrap; gap: 4px; max-width: 100%; margin: 10px 0 20px; padding: 3px; border-radius: 10px; background: var(--well); box-shadow: inset 0 1px 2px var(--well-shade), inset 0 0 0 1px var(--line); }
 .tabs a { padding: 4px 14px; border-radius: 8px; color: var(--ink); font-size: 13px; font-weight: 500; text-decoration: none; white-space: nowrap; transition: background-color 150ms ease-out; }
 .tabs a:hover { background: var(--hover); }
 .tabs a.active { background: var(--control-on); box-shadow: inset 0 1px 0 var(--rim), 0 0 0 1px var(--line), 0 1px 3px var(--lift); }
@@ -356,8 +356,6 @@ ul.items { list-style: none; padding: 0; margin: 0 -16px !important; }
 .item:last-child { border-radius: 0 0 var(--radius) var(--radius); }
 .batch .item { grid-template-columns: 1fr auto; }
 .item.selected { background: var(--selected); }
-.item.unsure { box-shadow: inset 3px 0 0 var(--warn-fill); }
-.item.problem { box-shadow: inset 3px 0 0 var(--bad-fill); }
 .item.quiet { color: var(--muted); }
 .item > input[type="checkbox"] { margin-top: 2px; }
 .item-main { display: flex; gap: 10px; align-items: flex-start; min-width: 0; }
