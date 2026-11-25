@@ -139,11 +139,20 @@ function PlanView(props: { plan: Accessor<Plan>; places: PlaceInfo[]; onChange: 
           {(from) => (
             <>
               {" "}
-              · reopened from <a href={`/plans/${from()}`}>plan {from()}</a>
+              · reopened from plan <code>{from()}</code>
             </>
           )}
         </Show>
       </p>
+      <Show when={plan().reopenedFrom}>
+        {(from) => (
+          <div class="row">
+            <a class="button" href={`/plans/${from()}`}>
+              Open the old plan
+            </a>
+          </div>
+        )}
+      </Show>
 
       <Show when={applied()}>
         {(r) => (
