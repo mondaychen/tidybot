@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Added
+- **Web interface.** `tidybot ui` opens a local page where you review and change a plan, apply it,
+  undo moves and search your files. A plan shows its files in groups by destination, and the menu on
+  each row changes where a file goes. You can also edit places, rules, settings and sensitive-file
+  exceptions there, and resolve interrupted moves. The page works only on this computer, with the
+  link that the command prints. See "Web interface" in the README.
+
 ### Fixed
 - **Memory use of the secret check.** secretlint's profiler kept a record of each check and never
   removed it. A long run, such as `tidybot ui` or a scan of a big folder, could run out of memory.

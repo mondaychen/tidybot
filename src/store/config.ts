@@ -140,6 +140,24 @@ export function loadConfig(): Config {
   });
 }
 
+/** The global settings alone: what applies outside a project, and what a global change starts from. */
+export function loadGlobalConfig(): Config {
+  return ConfigSchema.parse(readRaw("global"));
+}
+
+/** Which scopes turn each sensitive rule off, and which scope each secret rule in use comes from. */
+export function sensitiveScopes(): { allowedIn: Map<string, Scope[]>; secretRuleScope: Map<string, Scope> } {
+  const allowedIn = new Map<string, Scope[]>();
+  const secretRuleScope = new Map<string, Scope>();
+  for (const scope of projectDir() ? (["global", "project"] as const) : (["global"] as const)) {
+    const raw = readRaw(scope);
+    for (const id of raw.allowRules ?? []) allowedIn.set(id, [...(allowedIn.get(id) ?? []), scope]);
+    // A project's rule replaces a global one of the same name.
+    for (const r of raw.secretRules ?? []) secretRuleScope.set(r.name, scope);
+  }
+  return { allowedIn, secretRuleScope };
+}
+
 export function loadRules(): { scope: Scope; rules: string[] }[] {
   const out: { scope: Scope; rules: string[] }[] = [{ scope: "global", rules: readRaw("global").rules ?? [] }];
   if (projectDir()) out.push({ scope: "project", rules: readRaw("project").rules ?? [] });
@@ -159,6 +177,8 @@ export function setConfigValue(key: string, raw: string, scope = activeScope()):
     throw new TidyError(`Unknown config key "${key}". Known keys: ${SCALAR_KEYS.join(", ")} (use \`tidybot rules\` for rules)`);
   }
   const def = ConfigSchema.parse({})[key as ScalarKey];
+  // Number("") is 0, which is a valid value for some keys.
+  if (typeof def === "number" && raw.trim() === "") throw new TidyError(`${key} needs a number`, "invalid_input");
   const value = Array.isArray(def)
     ? parsePersonalKinds(raw)
     : typeof def === "number"
